@@ -162,6 +162,15 @@ export class MainContent extends preact.Component<MainContentProps> {
         }
     )
 
+    /** Stations in the order as fed into the map, those without metadata first */
+    $reordered_stations: Readonly<Signal<Station[]>> = signals.computed(
+        () => [
+            // same order as fed into map
+            ...this.$paritioned_stations.value.without_meta,
+            ...this.$paritioned_stations.value.with_meta
+        ]
+    )
+
     /** Stations converted to D3Map Markers */
     $map_markers:Readonly<Signal<Marker[]>> = signals.computed( () => {
         const stations:PartitionedStations = this.$paritioned_stations.value;
@@ -244,7 +253,7 @@ export class MainContent extends preact.Component<MainContentProps> {
     on_marker_hover = (index:number|null) => {
         this.$highlighted_station_index.value = (index != null) ? [index] : []
 
-        const stations:Station[] = this.props.$stations.value
+        const stations:Station[] = this.$reordered_stations.value
         if(index == null || !(index in stations))
             this.$highlighted_station.value = null;
         else
@@ -260,11 +269,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         }
         else {
             const mseed:MSEED_FileAndMeta = mseeds[index]!
-            const stations:Station[] = [
-                // same order as fed into map
-                ...this.$paritioned_stations.value.without_meta,
-                ...this.$paritioned_stations.value.with_meta
-            ]
+            const stations:Station[] = this.$reordered_stations.value
             for(const station_index in stations) {
                 const station:Station = stations[station_index]!
                 if(station_has_mseed_meta(station, [mseed.meta])) {
