@@ -1,5 +1,4 @@
 import datetime as dt
-from pathlib import Path
 import typing as tp
 
 import matplotlib
@@ -13,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import scipy
 from scipy.signal import stft, resample, butter, lfilter
+
 
 
 def _slice_bounds(i0: int, i1: int, n_samples: int) -> tuple[int, int]:
@@ -101,6 +101,7 @@ def create_spectrogram(
 ) -> Spectrogram:
     assert signal.ndim == 1, 'Expected 1D input'
 
+
     n_samples: int     = int(signal.size)
     n_per_segment: int = int( round(frequency / frequency_resolution) )
     n_per_segment = max(1, min(n_per_segment, n_samples))
@@ -123,71 +124,6 @@ def create_spectrogram(
     )
     return Spectrogram(f_axis, t_axis, Z, n_per_segment)
 
-
-
-# def _create_modulation_power_spectrum(
-#     signal:    npt.NDArray[np.int32],
-#     frequency: float,
-# ) -> ModulationPowerSpectrum:
-#     '''Compute modulation power spectrum from a 1D signal.'''
-#     spec: Spectrogram = create_spectrogram(signal, frequency)
-#     spec_log_data: npt.NDArray[np.float64] = np.log10(np.abs(spec.data) + 1.0)
-
-#     mps_complex: npt.NDArray[np.complex128] = np.fft.fft(spec_log_data, axis=1)
-#     mps_data: npt.NDArray[np.float64] = np.log10(np.abs(mps_complex) ** 2 + 1.0)
-
-
-#     dt = spec.t_axis[1]-spec.t_axis[0]
-#     modulation_f_axis = np.fft.fftfreq(mps_data.shape[1], d=dt)
-#     positives = (modulation_f_axis > 0)
-
-
-#     carrier_f_axis = spec.f_axis
-#     modulation_f_axis = modulation_f_axis[positives]
-#     mps_data = mps_data[:,positives]
-
-#     return ModulationPowerSpectrum(carrier_f_axis, modulation_f_axis, mps_data)
-
-
-# def create_modulation_power_spectrum(
-#     signal:    npt.NDArray[np.int32],
-#     frequency: float,
-# ) -> ModulationPowerSpectrum:
-#     '''Compute modulation power spectrum from a 1D signal.'''
-#     spec: Spectrogram = create_spectrogram(signal, frequency)
-#     spec_log_data: npt.NDArray[np.float64] = np.log10(np.abs(spec.data) + 1.0)
-#     centered_spec: npt.NDArray[np.float64] = spec_log_data - np.mean(spec_log_data)
-
-#     mps_complex: npt.NDArray[np.complex128] = np.fft.fftshift(
-#         np.fft.fft2(centered_spec)
-#     )
-#     mps_data: npt.NDArray[np.float64] = np.log10(np.abs(mps_complex) ** 2 + 1.0)
-
-#     delta_frequency_hz: float = (
-#         float(np.mean(np.diff(spec.f_axis)))
-#         if spec.f_axis.size > 1
-#         else frequency / max(1, spec.n_per_segment)
-#     )
-#     delta_time_s: float = (
-#         float(np.mean(np.diff(spec.t_axis)))
-#         if spec.t_axis.size > 1
-#         else 1.0 / max(1.0, frequency)
-#     )
-
-#     spectral_axis: npt.NDArray[np.float64] = np.fft.fftshift(
-#         np.fft.fftfreq(spec.f_axis.size, d=delta_frequency_hz)
-#     )
-#     temporal_axis: npt.NDArray[np.float64] = np.fft.fftshift(
-#         np.fft.fftfreq(spec.t_axis.size, d=delta_time_s)
-#     )
-
-#     spectral_positives = spectral_axis > 0
-#     temporal_positives = temporal_axis > 0
-#     spectral_axis = spectral_axis[spectral_positives]
-#     temporal_axis = temporal_axis[temporal_positives]
-#     mps_data      = mps_data[spectral_positives,:][:,temporal_positives]
-
-#     return ModulationPowerSpectrum(spectral_axis, temporal_axis, mps_data)
 
 
 
@@ -250,7 +186,7 @@ def create_modulation_power_spectrum(
     step   = 1
     # clipping sample rate due to memory issues
     new_frequency = min(50, frequency)
-    signal_50hz   = resample_to_freq(signal, frequency, new_frequency)
+    signal        = resample_to_freq(signal, frequency, new_frequency)
     frequency     = new_frequency
 
     b, a = butter(3, [2, 8], 'bandpass', fs=frequency)
@@ -258,13 +194,13 @@ def create_modulation_power_spectrum(
 
 
     spec: Spectrogram = create_spectrogram(
-        signal_50hz, 
+        signal, 
         frequency, 
         frequency_resolution = 0.1, 
         step = step
     )
 
-    sdata = 20 * np.log10( np.abs(spec.data) )
+    sdata = 20 * np.log10( np.abs(spec.data) +1 )
     if normalize:
         sdata = normalize_spectrogram(sdata, db_res)
 
@@ -352,7 +288,7 @@ def plot_spectrogram(
     fig: matplotlib.figure.Figure
     ax: matplotlib.axes.Axes
     fig, ax = plt.subplots()
-    ax.pcolor(time_axis, spec.f_axis, speclogdata, vmin=0, vmax=+4) # type: ignore [arg-type]
+    ax.pcolor(time_axis, spec.f_axis, speclogdata, vmin=0, vmax=+2.5) # type: ignore [arg-type]
     ax.set_xlabel('Time (UTC)')
     ax.set_ylabel('Frequency (Hz)')
     ax.set_title(f'{title} - Spectrogram')
