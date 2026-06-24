@@ -57,16 +57,16 @@ export class Axes extends preact.Component<{
 
         const zx:d3.ScaleLinear<number,number> =
             new d3.ZoomTransform(k_x, t.x, t.y).rescaleX(
-            d3.scaleLinear()
-            .domain([0, cols])
-            .range([0, w])
-        )
+                d3.scaleLinear()
+                .domain([0, cols])
+                .range([0, w])
+            )
         const zy:d3.ScaleLinear<number,number> =
             new d3.ZoomTransform(k_y, t.x, t.y).rescaleY(
-            d3.scaleLinear()
-            .domain([0, rows])
-            .range([0, h])
-        )
+                d3.scaleLinear()
+                .domain([0, rows])
+                .range([h, 0])
+            )
 
 
         const step_size_x:number = Math.floor((zx.invert(w) - zx.invert(0)) / 10)

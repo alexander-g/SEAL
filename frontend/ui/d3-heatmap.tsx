@@ -263,11 +263,13 @@ export class D3Heatmap extends preact.Component<{
         const imdata:ImageData = ctx.getImageData(0,0,w,h);
         const buffer:Uint8ClampedArray = imdata.data; // w*h*4
         for(const item of data) {
-            const index:number = item.y * w * 4 + item.x * 4;
+            const row:number = rows - 1 - item.y
+            const index:number = row * w * 4 + item.x * 4;
             if(typeof item.color == 'number') {
-                buffer[index + 0] = item.color * 255; 
-                buffer[index + 1] = item.color * 255;
-                buffer[index + 2] = 0;
+                const rgb:RGB = viridis(item.color);
+                buffer[index + 0] = rgb.r; 
+                buffer[index + 1] = rgb.g;
+                buffer[index + 2] = rgb.b;
             } else {
                 buffer[index + 0] = item.color.r; 
                 buffer[index + 1] = item.color.g;
@@ -475,7 +477,7 @@ function HoverMarker(props:{
     const item_height:number = plot_height / colsrows.rows;
     
     const x:number = item_width * item.x;
-    const y:number = item_height * item.y;
+    const y:number = item_height * (colsrows.rows - 1 - item.y)
 
     return <rect
         x            = {`${x}`}
@@ -598,7 +600,9 @@ export function mouse_to_col(mx: number, plot_width: number, cols: number): numb
 /** Convert mouse coordinate to row index */
 export function mouse_to_row(my: number, plot_height: number, rows: number): number {
     const clamped_y: number = Math.max(0, Math.min(my, plot_height))
-    return Math.min(Math.floor((clamped_y / plot_height) * rows), rows - 1)
+    const row_from_top:number =
+        Math.min(Math.floor((clamped_y / plot_height) * rows), rows - 1)
+    return rows - 1 - row_from_top
 }
 
 /** Convert plot coordinate to column index */
@@ -608,7 +612,8 @@ export function plot_x_to_col(mx: number, plot_width: number, cols: number): num
 
 /** Convert plot coordinate to row index */
 export function plot_y_to_row(my: number, plot_height: number, rows: number): number {
-    return Math.floor((my / plot_height) * rows)
+    const row_from_top:number = Math.floor((my / plot_height) * rows)
+    return rows - 1 - row_from_top
 }
 
 /** Build O(1) lookup index for heatmap items by grid coordinate */
@@ -691,3 +696,31 @@ export type RGB = {
     g: number;
     b: number;
 }
+
+
+/** Viridis color palette interpolation (0..1 -> RGB) */
+export function viridis(t: number): RGB {
+    const stops:[number, number, number][] = [
+      [ 68,   1,  84],
+      [ 59,  82, 139],
+      [ 33, 145, 140],
+      [ 94, 201,  98],
+      [253, 231,  37],
+    ];
+  
+    t = Math.max(0, Math.min(1, t));
+  
+    const n:number = stops.length - 1;
+    const i:number = Math.min(Math.floor(t * n), n - 1);
+    const f:number = t * n - i;
+  
+    const [r1, g1, b1] = stops[i]!;
+    const [r2, g2, b2] = stops[i + 1]!;
+  
+    const r:number = Math.round(r1 + (r2 - r1) * f);
+    const g:number = Math.round(g1 + (g2 - g1) * f);
+    const b:number = Math.round(b1 + (b2 - b1) * f);
+  
+    return {r, g, b}
+}
+

@@ -24,7 +24,6 @@ type SelectablePanelsRowProps = {
 export class SelectablePanelsRow extends preact.Component<SelectablePanelsRowProps> {
 
     render(): JSX.Element {
-        const visible_items: PanelItem[] = this.$selected_items.value;
 
         return <div
             ref={this.container_ref}

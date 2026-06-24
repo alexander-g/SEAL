@@ -54,17 +54,54 @@ def test_plot_spectrogram():
     start_timestamp_s = time.time()
     sample_rate = 50
     title = 'pytest'
-    tempdir = tempfile.TemporaryDirectory()
-    output_path = os.path.join(tempdir.name, 'plot.png')
 
-    pyodide_plot.plot_spectrogram(x, i0, i1, start_timestamp_s, sample_rate, title, output_path)
-    assert os.path.exists(output_path)
+    result = pyodide_plot.create_spectrogram_for_visualization(
+        x,
+        i0,
+        i1,
+        start_timestamp_s,
+        sample_rate,
+        title,
+        None,
+    )
+    assert result['rows'] > 0
+    assert result['cols'] > 0
+    assert result['power'].size == result['rows'] * result['cols']
 
 
     # shorter
     i1 = 80
     # dont fail
-    pyodide_plot.plot_spectrogram(x, i0, i1, start_timestamp_s, sample_rate, title, output_path)
+    result_short = pyodide_plot.create_spectrogram_for_visualization(
+        x,
+        i0,
+        i1,
+        start_timestamp_s,
+        sample_rate,
+        title,
+        None,
+    )
+    assert result_short['power'].size == result_short['rows'] * result_short['cols']
+
+
+def test_plot_spectrogram_short_slice():
+    x  = np.random.randint(0, 100, size=(32,), dtype='int32')
+    i0 = 0
+    i1 = 12
+    start_timestamp_s = time.time()
+    sample_rate = 50
+    title = 'pytest'
+
+    result = pyodide_plot.create_spectrogram_for_visualization(
+        x,
+        i0,
+        i1,
+        start_timestamp_s,
+        sample_rate,
+        title,
+        None,
+    )
+    assert result['power'].size == result['rows'] * result['cols']
 
 
 def test_create_modulation_power_spectrum():
@@ -82,6 +119,26 @@ def test_create_modulation_power_spectrum_invalid_input():
 
     with pytest.raises(AssertionError):
         pyodide_plot.create_modulation_power_spectrum(x, frequency)
+
+
+def test_plot_spectrogram_invalid_input():
+    x  = np.random.randint(0, 100, size=(32, 8), dtype='int32')
+    i0 = 0
+    i1 = 10
+    start_timestamp_s = time.time()
+    sample_rate = 50
+    title = 'pytest'
+
+    with pytest.raises(AssertionError):
+        pyodide_plot.create_spectrogram_for_visualization(
+            x,
+            i0,
+            i1,
+            start_timestamp_s,
+            sample_rate,
+            title,
+            None,
+        )
 
 
 def test_plot_modulation_power_spectrum_short_slice():

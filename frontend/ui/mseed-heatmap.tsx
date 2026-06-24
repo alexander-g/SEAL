@@ -148,7 +148,7 @@ export class MSEED_Heatmap extends preact.Component<{
 
         const all_codes:string[] = Array.from(
             new Set(files.map((item:MSeedMetadata) => combine_mseed_codes(item)))
-        ).sort()
+        ).sort().reverse()
         const station_colors:Record<string, RGB> = create_station_colors(all_codes)
 
         const all_items:HeatmapDataItemWithFile[] = []

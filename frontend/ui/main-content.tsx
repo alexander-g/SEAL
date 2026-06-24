@@ -1,9 +1,10 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 
+import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
 import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
 import { MSEED_Heatmap } from './mseed-heatmap.tsx'
-import { PlotImage }     from './plot-image.tsx'
+import { PlotImage, ContainerWithOverlay } from './plot-image.tsx'
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
@@ -14,7 +15,7 @@ import { is_deno, strftime_ISO8601_datetime } from '../lib/util.ts'
 
 import type { AppConfig }         from '../index.tsx'
 import type { InferenceEvent }    from './mseed-heatmap.tsx'
-import type { IPyodide }          from '../lib/pyodide.ts'
+import type { IPyodide, SpectrogramData } from '../lib/pyodide.ts'
 import type { Marker, MarkerVisual } from './d3-map.tsx'
 import type { MSEED_FileAndMeta } from '../lib/file-input.ts'
 import type { MSeedMetadata }     from "../lib/mseed-parsing.ts"
@@ -59,10 +60,18 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'spectrogram',
                 label: 'Spectrogram',
-                element: <PlotImage 
-                    ref = {this.spectrogram_img_ref} 
-                    $is_loading = {this.$plots_loading} 
-                />,
+                element: 
+                <ContainerWithOverlay
+                    $is_loading     = {this.$plots_loading}
+                    loading_message = 'Select a MSEED channel and time to plot here.'
+                >
+                    <D3Heatmap
+                        $data   = {this.$spectrogram_heatmap_data}
+                        $x_axis = {this.$spectrogram_time_axis}
+                        $y_axis = {this.$spectrogram_frequency_axis}
+                        on_click = {this.on_spectrogram_click}
+                    />
+                </ContainerWithOverlay>,
             },
             {
                 key: 'mps',
@@ -317,6 +326,7 @@ export class MainContent extends preact.Component<MainContentProps> {
 
         this.$plots_loading.value = true
 
+        const tx0 = performance.now()
         try {
             if(this.pyodide == undefined) {
                 console.error('Pyodide not initialized')
@@ -332,17 +342,16 @@ export class MainContent extends preact.Component<MainContentProps> {
             
             const file:File = mseed.file;
             
-            console.log('reading file: ', file.name)
+            console.log('Reading file: ', file.name)
             const data:Float32Array|Error = await tremorwasm.read_data(file)
             if(data instanceof Error) {
                 console.log(`Could not read mseed data of ${file.name}`)
                 console.log(data as Error)
                 return
             }
-            console.log('data size:', data.length, i0, i1)
 
             const code: string = combine_mseed_codes(mseed.meta)
-            const spectrogram_promise:Promise<File|Error> =
+            const spectrogram_promise:Promise<SpectrogramData|Error> =
                 this.pyodide.plot_spectrogram(
                     data,
                     i0,
@@ -374,12 +383,28 @@ export class MainContent extends preact.Component<MainContentProps> {
                 samplerate: 8000,
             }
 
-            const spectrogram_png:File|Error = await spectrogram_promise
-            if(spectrogram_png instanceof Error) {
-                console.error(`Error plotting spectrogram: ${spectrogram_png.message}`)
+            const spectrogram_data:SpectrogramData|Error = await spectrogram_promise
+            if(spectrogram_data instanceof Error) {
+                console.error(
+                    `Error computing spectrogram: ${spectrogram_data.message}`
+                )
                 return;
             }
-            this.spectrogram_img_ref.current?.set_src(spectrogram_png)
+            const spectrogram_start_s:number =
+                mseed.meta.starttime.getTime() / 1000
+                + (i0 / mseed.meta.samplerate)
+
+            this.$spectrogram_time_axis.value = Array.from(
+                spectrogram_data.t_axis,
+                t => spectrogram_start_s + t
+            )
+            this.$spectrogram_frequency_axis.value = Array.from(
+                spectrogram_data.f_axis,
+                f => format_frequency_label(f)
+            )
+
+            this.$spectrogram_heatmap_data.value = 
+                spectrogram_to_heatmap(spectrogram_data)
 
             const mps_png:File|Error = await mps_promise
             if(mps_png instanceof Error) {
@@ -391,13 +416,21 @@ export class MainContent extends preact.Component<MainContentProps> {
             this.mps_img_ref.current?.set_src(mps_png)
         } finally {
             this.$plots_loading.value = false
+
+            const tx1 = performance.now()
+            console.log('total: ', tx1 - tx0)
         }
     }
 
 
     // references to components
-    spectrogram_img_ref:preact.RefObject<PlotImage> = preact.createRef()
     mps_img_ref:preact.RefObject<PlotImage> = preact.createRef()
+
+    $spectrogram_heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
+    $spectrogram_time_axis: Signal<number[]> = new Signal([])
+    $spectrogram_frequency_axis: Signal<string[]> = new Signal(['0'])
+
+    on_spectrogram_click = (_selected:number) => {}
 
 }
 
@@ -437,6 +470,44 @@ async function slice_and_prepare_audio(
         return new Float32Array([])
     // else
     return result;
+}
+
+
+function spectrogram_to_heatmap(data: SpectrogramData): HeatmapDataItem[] {
+    const rows:number = Math.max(data.rows, 0)
+    const cols:number = Math.max(data.cols, 0)
+    const output:HeatmapDataItem[] = []
+    if(rows == 0 || cols == 0)
+        return output
+
+    let index:number = 0
+    for(let row:number = 0; row < rows; row++) {
+        for(let col:number = 0; col < cols; col++) {
+            const power:number = data.power[index] ?? 0
+            output.push({
+                x: col,
+                y: row,
+                color: power,
+            })
+            index += 1
+        }
+    }
+
+    return output
+}
+
+
+function format_frequency_label(frequency_hz: number): string {
+    if(!Number.isFinite(frequency_hz))
+        return '0'
+
+    if(frequency_hz >= 10)
+        return frequency_hz.toFixed(0)
+
+    if(frequency_hz >= 1)
+        return frequency_hz.toFixed(1)
+
+    return frequency_hz.toFixed(2)
 }
 
 

@@ -10,28 +10,18 @@ type PlotImageProps = {
 export class PlotImage extends preact.Component<PlotImageProps> {
     img_ref:preact.RefObject<HTMLImageElement> = preact.createRef()
 
-    $initialized:Signal<boolean> = new Signal(false)
-    $overlay_message: Readonly<Signal<string>> = signals.computed(
-        () => this.props.$is_loading.value
-            ? 'Loading...'
-            : 'Select a MSEED channel and time to plot here.'
-    )
-
-    $overlay_on:Readonly<Signal<boolean>> = signals.computed(
-        () => !this.$initialized.value || this.props.$is_loading.value
-    )
-
     render(): JSX.Element {
-        return <div class='container' style={{position:'relative', width:'100%'}}>
+        return <> 
+        <ContainerWithOverlay
+            $is_loading     = {this.props.$is_loading}
+            loading_message = 'Select a MSEED channel and time to plot here.'
+        >
             <img 
-                ref={this.img_ref} 
-                style={{width:'100%', height:'100%', border:"1px gray solid"}} 
+                ref   = {this.img_ref} 
+                style = {{width:'100%', height:'100%', border:"1px gray solid"}} 
             />
-
-            <OverlayDiv $visible={this.$overlay_on}>
-                { this.$overlay_message.value }
-            </OverlayDiv>
-        </div>
+        </ContainerWithOverlay>
+        </>
     }
 
     set_src(file:File): void {
@@ -42,6 +32,48 @@ export class PlotImage extends preact.Component<PlotImageProps> {
             {once:true}
         )
         this.img_ref.current!.src = objurl;
-        this.$initialized.value = true;
+        // this.$initialized.value = true;
     }
 }
+
+
+type ContainerWithOverlayProps = {
+    $is_loading: Readonly<Signal<boolean>>;
+    
+    /** Which message to show when `$is_loading` is true */
+    loading_message: string;
+
+    children: preact.ComponentChildren;
+}
+
+
+export class ContainerWithOverlay extends preact.Component<ContainerWithOverlayProps> {
+    public $initialized:Signal<boolean> = new Signal(false)
+
+    render(): JSX.Element {
+        return <div class='container' style={{position:'relative', width:'100%'}}>
+            { this.props.children }
+
+            <OverlayDiv $visible={this.$overlay_on}>
+                { this.$overlay_message.value }
+            </OverlayDiv>
+        </div>
+    }
+
+    $overlay_on:Readonly<Signal<boolean>> = signals.computed(
+        () => !this.$initialized.value || this.props.$is_loading.value
+    )
+
+    $overlay_message: Readonly<Signal<string>> = signals.computed(
+        () => this.props.$is_loading.value
+            ? 'Loading...'
+            : this.props.loading_message
+    )
+
+    #_1 = this.props.$is_loading.subscribe( (value:boolean) => {
+        if(value)
+            this.$initialized.value = true;
+    } )
+}
+
+

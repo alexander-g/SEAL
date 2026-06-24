@@ -87,6 +87,14 @@ class Spectrogram(tp.NamedTuple):
     n_per_segment: int
 
 
+class SpectrogramDataDict(tp.TypedDict):
+    t_axis: npt.NDArray[np.float32]
+    f_axis: npt.NDArray[np.float32]
+    power:  npt.NDArray[np.float32]
+    rows:   int
+    cols:   int
+
+
 class ModulationPowerSpectrum(tp.NamedTuple):
     spectral_axis: npt.NDArray[np.float64]  # 1/Hz
     temporal_axis: npt.NDArray[np.float64]  # Hz
@@ -139,6 +147,25 @@ def normalize_spectrogram(
     s_norm -= s_norm.mean()
     s_norm /= s_norm.std()
     return s_norm
+
+
+def scale_spectrogram_to_range(
+    spectrogram: npt.NDArray[np.floating],
+    vmin: tp.Optional[float] = None,
+    vmax: tp.Optional[float] = None,
+) -> npt.NDArray[np.float32]:
+    if vmin is None:
+        vmin = float(spectrogram.min()) if spectrogram.size > 0 else 0.0
+    if vmax is None:
+        vmax = float(spectrogram.max()) if spectrogram.size > 0 else 0.0
+    if vmax <= vmin:
+        return np.zeros_like(spectrogram, dtype=np.float32)
+
+    normalized: npt.NDArray[np.float32] = (
+        (spectrogram - vmin) / (vmax - vmin)
+    ).astype(np.float32)
+    return normalized
+
 
 def pad_spectrogram(
     s: npt.NDArray[np.floating], 
@@ -257,7 +284,7 @@ def create_modulation_power_spectrum(
 
 
 
-def plot_spectrogram(
+def create_spectrogram_for_visualization(
     data: npt.NDArray[np.float32],
     i0:  int,
     i1:  int,
@@ -265,42 +292,29 @@ def plot_spectrogram(
     sample_rate_hz:    float,
     title: str,
     output_path: tp.Optional[str],
-):
-    """Visualize a time slice as a spectrogram and optionally save it to a PNG file."""
+) -> SpectrogramDataDict:
+    """Return spectrogram data for a time slice."""
     # NOTE: data is a memoryview when called from JS, making sure its numpy
     data = np.asarray(data, dtype=np.float32)
     start: int
     stop: int
     start, stop = _slice_bounds(i0, i1, data.size)
 
-    start_time = dt.datetime.fromtimestamp(start_timestamp_s, tz=dt.timezone.utc)
-
     sliced_data: npt.NDArray[np.float32] = data[start:stop]
 
-
     spec = create_spectrogram(sliced_data, sample_rate_hz)
-    speclogdata = np.log10( np.abs(spec.data)+1 )
+    speclogdata: npt.NDArray[np.float32] = \
+        np.log10( np.abs(spec.data) + 1).astype(np.float32)
+    normalized: npt.NDArray[np.float32] = \
+        scale_spectrogram_to_range(speclogdata, vmin=0.0, vmax=2.5)
 
-    time_axis: list[dt.datetime] = [
-        start_time + dt.timedelta(seconds = start/sample_rate_hz + s) for s in spec.t_axis
-    ]
-
-    fig: matplotlib.figure.Figure
-    ax: matplotlib.axes.Axes
-    fig, ax = plt.subplots()
-    ax.pcolor(time_axis, spec.f_axis, speclogdata, vmin=0, vmax=+2.5) # type: ignore [arg-type]
-    ax.set_xlabel('Time (UTC)')
-    ax.set_ylabel('Frequency (Hz)')
-    ax.set_title(f'{title} - Spectrogram')
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S'))
-    
-    fig.autofmt_xdate()
-    plt.tight_layout()
-
-    if output_path is not None:
-        fig.savefig(output_path)
-    
-    plt.close(fig)
+    return {
+        't_axis': spec.t_axis.astype(np.float32),
+        'f_axis': spec.f_axis.astype(np.float32),
+        'power':  normalized.astype(np.float32).ravel(),
+        'rows':   int(spec.f_axis.size),
+        'cols':   int(spec.t_axis.size),
+    }
 
 
 def plot_modulation_power_spectrum(
