@@ -200,7 +200,7 @@ export class Pyodide implements IPyodide {
     ): Promise<SpectrogramData|Error> {
 
         const plot_fn:(...x:unknown[]) => void = this.pyodide.globals.get(
-            'plot_modulation_power_spectrum'
+            'create_modulation_power_spectrum_for_visualization'
         )
         try{
             const result_py:unknown = await plot_fn(

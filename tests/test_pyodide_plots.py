@@ -59,10 +59,7 @@ def test_plot_spectrogram():
         x,
         i0,
         i1,
-        start_timestamp_s,
         sample_rate,
-        title,
-        None,
     )
     assert result['rows'] > 0
     assert result['cols'] > 0
@@ -76,10 +73,7 @@ def test_plot_spectrogram():
         x,
         i0,
         i1,
-        start_timestamp_s,
         sample_rate,
-        title,
-        None,
     )
     assert result_short['power'].size == result_short['rows'] * result_short['cols']
 
@@ -96,10 +90,7 @@ def test_plot_spectrogram_short_slice():
         x,
         i0,
         i1,
-        start_timestamp_s,
         sample_rate,
-        title,
-        None,
     )
     assert result['power'].size == result['rows'] * result['cols']
 
@@ -134,10 +125,7 @@ def test_plot_spectrogram_invalid_input():
             x,
             i0,
             i1,
-            start_timestamp_s,
             sample_rate,
-            title,
-            None,
         )
 
 
@@ -151,17 +139,13 @@ def test_plot_modulation_power_spectrum_short_slice():
     tempdir = tempfile.TemporaryDirectory()
     output_path = os.path.join(tempdir.name, 'plot.png')
 
-    pyodide_plot.plot_modulation_power_spectrum(
+    pyodide_plot.create_modulation_power_spectrum_for_visualization(
         x,
         i0,
         i1,
-        start_timestamp_s,
         sample_rate,
-        title,
-        output_path,
     )
 
-    assert os.path.exists(output_path)
 
 
 def test_prepare_for_audio():

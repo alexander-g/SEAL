@@ -283,6 +283,163 @@ def create_modulation_power_spectrum(
 
 
 
+def create_modulation_power_spectrum2(waveform:np.ndarray, fs:float):
+    '''Modulation power spectrum as in biosound'''
+    b, a     = scipy.signal.butter(3, [2, 8], 'bandpass', fs = fs)
+    waveform = scipy.signal.lfilter(b, a, waveform)
+    spectrogramdata, f_axis, t_axis = spectrogram_as_in_biosound(waveform, fs, f_min=2, f_max=8)
+    mps = mps_as_in_biosound(spectrogramdata, f_axis, t_axis, windowlength=5.12/2)
+
+    wf_mask = (mps.spectral_axis >= 0)
+    wt_mask = (mps.temporal_axis >= 0)
+    wf = mps.spectral_axis[wf_mask]
+    wt = mps.temporal_axis[wt_mask]
+    mpsdata = mps.data[wf_mask][:, wt_mask]
+
+    return ModulationPowerSpectrum(wf, wt, mpsdata) 
+
+
+
+def spectrogram_as_in_biosound(
+    signal:    npt.NDArray, 
+    fs:        float,
+    f_spacing: float = 0.0745, 
+    t_spacing: float = 0.02,
+    f_min:     float = 0.0,
+    f_max:     float = np.inf,
+    nstd:      float = 6
+):
+    f_max = min(f_max, fs / 2)
+    window_length = nstd / (2.0 * np.pi * f_spacing)
+    window_nsamples = int(window_length * fs)
+    if window_nsamples % 2 == 1:
+        window_nsamples += 1
+    assert len(signal) > window_nsamples, f'{len(signal), {window_nsamples}}'
+
+    signal = zero_pad_signal(signal, window_nsamples)
+
+    t_spacing_samples = int( np.round(fs * t_spacing) )
+    sliding_window_view = np.lib.stride_tricks.sliding_window_view
+    signal_windows = \
+        sliding_window_view(signal, window_nsamples, axis=0)[::t_spacing_samples]
+    gaussian_weights = generate_gaussian_weights(window_nsamples, nstd)
+
+    #spectrogramdata = np.zeros([len(signal), len(signal_windows)], dtype='complex')
+    spectrogramdata: npt.NDArray|None = None
+    for i, signal_window in enumerate(signal_windows):
+        f_axis, s_fft = perform_fft( signal_window * gaussian_weights, fs )
+        mask = (f_axis <= f_max) & (f_axis >= f_min)
+    
+        f_axis = f_axis[mask]
+        if spectrogramdata is None:
+            spectrogramdata = np.zeros([len(f_axis), len(signal_windows)], dtype='complex')
+        # spectrogramdata = spectrogramdata[:len(f_axis)]
+        spectrogramdata[:, i] = s_fft[mask]
+    
+    t_axis = np.linspace(0, len(signal)/fs, len(signal_windows))
+    # NOTE: f_axis should be defined, or sliding_window_view would have raised
+
+    # for mypy
+    spectrogramdata = tp.cast(npt.NDArray, spectrogramdata)
+    spectrogramdata = 20 * np.log10(np.abs(spectrogramdata))
+    return spectrogramdata, f_axis, t_axis
+
+
+def perform_fft(signal:npt.NDArray, fs:float) -> tp.Tuple[npt.NDArray, npt.NDArray]:
+    fft_length = scipy.fftpack.next_fast_len(len(signal))
+    signal  = signal[:fft_length]
+    s_fft   = scipy.fftpack.fft(signal, n=fft_length, overwrite_x=False)
+    f_axis  = scipy.fftpack.fftfreq(fft_length, d=1.0/fs)
+    nonzero = f_axis >= 0.0
+
+    return f_axis[nonzero], s_fft[nonzero]
+
+
+def generate_gaussian_weights(window_nsamples:int, nstd:float = 6):
+    half_window  = window_nsamples / 2
+    gauss_t      = np.linspace(-half_window, half_window, window_nsamples)
+    gauss_std    = window_nsamples / nstd
+    gauss_window = \
+        np.exp(-gauss_t**2 / (2.0 * gauss_std**2)) / (gauss_std * np.sqrt(2*np.pi))
+    return gauss_window
+
+
+def zero_pad_signal(signal: npt.NDArray, window_nsamples:int) -> npt.NDArray:
+    assert window_nsamples % 2 == 0
+
+    half_window = window_nsamples // 2
+    zero_padded = np.zeros([len(signal) + 2 * half_window])
+    zero_padded[half_window:-half_window] = signal
+    return zero_padded
+
+
+def mps_as_in_biosound(
+    spectrogramdata:npt.NDArray, 
+    f_axis:npt.NDArray, 
+    t_axis:npt.NDArray, 
+    windowlength: tp.Optional[float] = None,
+    normalize:    bool = True
+):
+    assert spectrogramdata.ndim == 2
+    assert spectrogramdata.shape[0] == len(f_axis)
+    assert spectrogramdata.shape[1] == len(t_axis)
+    
+    if normalize:
+        spectrogramdata = normalize_spectrogram(spectrogramdata)
+
+
+    if windowlength is None:
+        windowlength = t_axis[-1] / 10.0
+    
+    window_n = int( np.searchsorted(t_axis, windowlength) )
+    if window_n % 2 == 0:
+        window_n += 1
+    
+    gaussian_weights = generate_gaussian_weights(window_n, nstd=6)
+    t_step = int( window_n / 2 / 3 ) or 1
+
+    pad_n = int( (window_n - 1) // 2 )
+    spectrogramdata_padded = \
+        pad_spectrogram(spectrogramdata, pad_n, spectrogramdata.min())
+    nt_padded = spectrogramdata_padded.shape[1]
+
+
+    n_chunks = 0
+    mps_sum: tp.Optional[npt.NDArray] = None
+    for center in range(t_step, len(t_axis), t_step):
+        start = max(center - pad_n, 0)
+        end   = start + len(gaussian_weights)
+        if end > nt_padded:
+            break
+
+        windowed = spectrogramdata_padded[:, start:end] * gaussian_weights
+        spectral_frequency, temporal_frequency, mps_power = \
+            compute_mps2d(windowed, f_axis, t_axis[:window_n])
+        
+        if mps_sum is None:
+            mps_sum = mps_power
+        else:
+            mps_sum += mps_power
+        n_chunks += 1
+
+
+    if n_chunks > 0:
+        mps_avg: NDArray[np.floating] = mps_sum / n_chunks  # type: ignore
+    else:
+        mps_avg   = np.zeros_like(spectrogramdata)
+        spectral_frequency = np.zeros(len(f_axis))
+        temporal_frequency = np.zeros(len(t_axis))
+    
+    return ModulationPowerSpectrum(spectral_frequency, temporal_frequency, mps_avg)
+
+
+
+
+
+
+
+
+
 
 def create_spectrogram_for_visualization(
     data: npt.NDArray[np.float32],
@@ -314,7 +471,7 @@ def create_spectrogram_for_visualization(
     }
 
 
-def plot_modulation_power_spectrum(
+def create_modulation_power_spectrum_for_visualization(
     data: npt.NDArray[np.float32],
     i0: int,
     i1: int,
@@ -327,7 +484,7 @@ def plot_modulation_power_spectrum(
     start, stop = _slice_bounds(i0, i1, data.size)
 
     sliced_data: npt.NDArray[np.float32] = data[start:stop]
-    mps: ModulationPowerSpectrum = create_modulation_power_spectrum(
+    mps: ModulationPowerSpectrum = create_modulation_power_spectrum2(
         sliced_data,
         sample_rate_hz,
     )
