@@ -23,6 +23,9 @@ export class Axes extends preact.Component<{
 
     /** Current zoom state */
     $zoom_transform: Readonly<Signal<d3.ZoomTransform>>,
+
+    /** Optional formatter for x axis labels */
+    x_axis_label_formatter?: (value:number) => string,
 }> {
 
     render(): JSX.Element {
@@ -86,7 +89,7 @@ export class Axes extends preact.Component<{
                 )
             )
             // TODO: too many assumptions for this component
-            .tickFormat( t => strftime_ISO8601_datetime(new Date( x_axis[Number(t)]! * 1000 ) )  )
+            .tickFormat( t => this.#format_x_axis_value(x_axis, Number(t)) )
         const d3_y_axis:d3.Axis<d3.NumberValue> = 
             d3.axisLeft(zy)
             .tickValues(d3.range(0, rows, 5))
@@ -108,4 +111,17 @@ export class Axes extends preact.Component<{
     $x_axis_transform:Readonly<Signal<string>> = signals.computed(() =>
         `translate(0,${this.props.$dimensions.value.plot_height})`
     )
+
+    #format_x_axis_value(x_axis:number[], index:number): string {
+        const value:number|undefined = x_axis[index]
+        if(value == undefined)
+            return ''
+
+        const formatter:((value:number)=>string)|undefined =
+            this.props.x_axis_label_formatter
+        if(formatter != undefined)
+            return formatter(value)
+
+        return strftime_ISO8601_datetime(new Date( value * 1000 ) )
+    }
 }

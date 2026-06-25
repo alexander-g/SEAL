@@ -3,6 +3,7 @@ import * as pyo from 'pyodide'
 import { is_deno, fetch_no_throw } from "./util.ts";
 import type { 
     WorkerInitCommand,
+    WorkerModulationPowerSpectrumCommand,
     WorkerPlotDataCommand,
     WorkerPrepareForAudioCommand,
     WorkerMessage,
@@ -40,7 +41,7 @@ export interface IPyodide {
         title:          string,
     ): Promise<SpectrogramData|Error>;
 
-    /** Plot modulation power spectrum and return a PNG file. */
+    /** Compute modulation power spectrum data. */
     plot_modulation_power_spectrum(
         data: Float32Array,
         i0: number,
@@ -48,7 +49,7 @@ export interface IPyodide {
         start_time: Date,
         sample_rate_hz: number,
         title: string,
-    ): Promise<File|Error>;
+    ): Promise<SpectrogramData|Error>;
 
     /** Convert a raw mseed signal to an audio signal */
     prepare_obs_signal_for_audio(
@@ -101,7 +102,7 @@ export class PyodideInWorker implements IPyodide {
         start_time: Date,
         sample_rate_hz: number,
         title: string,
-    ): Promise<File|Error> {
+    ): Promise<SpectrogramData|Error> {
         const internal:IPyodide|Error = await this.readypromise;
         if(internal instanceof Error)
             return internal as Error;
@@ -133,6 +134,7 @@ export class PyodideInWorker implements IPyodide {
 export class Pyodide implements IPyodide {
     constructor(private pyodide:pyo.PyodideAPI){}
 
+    // obsolete?
     async plot_data(
         data:Float32Array,
         i0:number,
@@ -177,10 +179,7 @@ export class Pyodide implements IPyodide {
                 this.pyodide.toPy(data), 
                 i0, 
                 i1, 
-                start_time.getTime()/1000, 
                 sample_rate_hz, 
-                title, 
-                null
             )
             const result_js: SpectrogramData|Error = 
                 validate_pyodide_spectrogram_output(result_py);
@@ -198,25 +197,22 @@ export class Pyodide implements IPyodide {
         start_time: Date,
         sample_rate_hz: number,
         title: string,
-    ): Promise<File|Error> {
+    ): Promise<SpectrogramData|Error> {
 
         const plot_fn:(...x:unknown[]) => void = this.pyodide.globals.get(
             'plot_modulation_power_spectrum'
         )
         try{
-            const t0 = performance.now()
-            await plot_fn(
+            const result_py:unknown = await plot_fn(
                 this.pyodide.toPy(data),
                 i0,
                 i1,
-                start_time.getTime()/1000,
                 sample_rate_hz,
-                title,
-                '/plt.png'
             )
-            const pngdata:Uint8Array<ArrayBuffer> =
-                this.pyodide.FS.readFile('/plt.png', {encoding: 'binary'})
-            return new File([pngdata], 'plot.png')
+            const result_js: SpectrogramData|Error =
+                validate_pyodide_spectrogram_output(result_py);
+            destroy_pyodide_output(result_py);
+            return result_js
         } catch (e) {
             return new Error(`${e}`)
         }
@@ -300,7 +296,6 @@ class PyodideToWorkerInterface implements IPyodide {
     constructor(private worker:Worker){}
 
     private _plot(
-        plotcommand: WorkerPlotDataCommand['command'],
         data: Float32Array,
         i0:number,
         i1:number,
@@ -309,7 +304,7 @@ class PyodideToWorkerInterface implements IPyodide {
         title:string,
     ): Promise<File|Error> {
         const command:WorkerPlotDataCommand = {
-            command: plotcommand,
+            command: 'plot-data',
             data:    data,
             i0,
             i1,
@@ -334,6 +329,49 @@ class PyodideToWorkerInterface implements IPyodide {
                         return;
                     else
                         result = new File([message.outputdata_png], 'plot.png')
+
+                    this.worker.removeEventListener('message', onmessage)
+                    resolve(result)
+                    return;
+                }
+                this.worker.addEventListener('message', onmessage)
+            } )
+        this.worker.postMessage(command);
+        return promise;
+    }
+
+    private _mps_data(
+        data: Float32Array,
+        i0:number,
+        i1:number,
+        start_time:Date,
+        sample_rate_hz:number,
+        title:string,
+    ): Promise<SpectrogramData|Error> {
+        const command:WorkerModulationPowerSpectrumCommand = {
+            command: 'plot-modulation-power-spectrum',
+            data:    data,
+            i0,
+            i1,
+            start_time,
+            sample_rate_hz,
+            title,
+            uuid: self.crypto.randomUUID()
+        }
+        const promise:Promise<SpectrogramData|Error> = 
+            new Promise( (resolve: (x:SpectrogramData|Error) => void) => {
+                const onmessage = (e:MessageEvent) => {
+                    const message:WorkerMessage = e.data;
+                    
+                    let result: SpectrogramData|Error;
+                    if(message instanceof Error)
+                        result = message as Error;
+                    else if (message.message != 'mps-data-result')
+                        return;
+                    else if (message.uuid != command.uuid) 
+                        return;
+                    else
+                        result = message.data
 
                     this.worker.removeEventListener('message', onmessage)
                     resolve(result)
@@ -392,7 +430,7 @@ class PyodideToWorkerInterface implements IPyodide {
     plot_data(
         ...x:Parameters<IPyodide['plot_data']>
     ): ReturnType<IPyodide['plot_data']> {
-        return this._plot('plot-data', ...x)
+        return this._plot(...x)
     }
 
     plot_spectrogram(
@@ -404,7 +442,7 @@ class PyodideToWorkerInterface implements IPyodide {
     plot_modulation_power_spectrum(
         ...x:Parameters<IPyodide['plot_modulation_power_spectrum']>
     ): ReturnType<IPyodide['plot_modulation_power_spectrum']> {
-        return this._plot('plot-modulation-power-spectrum', ...x)
+        return this._mps_data(...x)
     }
 
     prepare_obs_signal_for_audio(

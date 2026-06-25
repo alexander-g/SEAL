@@ -48,9 +48,12 @@ export class D3Heatmap extends preact.Component<{
     $title?:       Readonly<Signal<string>>,
     x_axis_label?: string,
     y_axis_label?: string,
+    x_axis_label_formatter?: (value:number) => string,
 
     enable_zoom?:  boolean,
     enable_hover?: boolean,
+
+    colormap?: 'viridis'|'magma',
 }> {
     private static next_clip_id:number = 0
     private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
@@ -169,6 +172,7 @@ export class D3Heatmap extends preact.Component<{
                         $rowscols       = {this.$rowscols}
                         $x_axis         = {this.props.$x_axis}
                         $zoom_transform = {this.$zoom_transform}
+                        x_axis_label_formatter = {this.props.x_axis_label_formatter}
                     />
                     <PlotTitleLabel 
                         $plot_width = {this.$plot_width} 
@@ -297,11 +301,12 @@ export class D3Heatmap extends preact.Component<{
 
         const imdata:ImageData = ctx.getImageData(0,0,w,h);
         const buffer:Uint8ClampedArray = imdata.data; // w*h*4
+        const cmap: (t:number) => RGB = COLORMAPS[this.props.colormap ?? 'viridis']
         for(const item of data) {
             const row:number = rows - 1 - item.y
             const index:number = row * w * 4 + item.x * 4;
             if(typeof item.color == 'number') {
-                const rgb:RGB = viridis(item.color);
+                const rgb:RGB = cmap(item.color);
                 buffer[index + 0] = rgb.r; 
                 buffer[index + 1] = rgb.g;
                 buffer[index + 2] = rgb.b;
@@ -771,3 +776,32 @@ export function viridis(t: number): RGB {
     return {r, g, b}
 }
 
+
+/** Magma color palette interpolation (0..1 -> RGB) */
+export function magma(t: number): RGB {
+    const stops: [number, number, number][] = [
+      [  0,   0,   4],
+      [ 59,  15, 112],
+      [140,  41, 129],
+      [221,  73, 104],
+      [254, 159, 109],
+      [252, 253, 191],
+    ];
+  
+    t = Math.max(0, Math.min(1, t));
+  
+    const n: number = stops.length - 1;
+    const i: number = Math.min(Math.floor(t * n), n - 1);
+    const f: number = t * n - i;
+  
+    const [r1, g1, b1] = stops[i]!;
+    const [r2, g2, b2] = stops[i + 1]!;
+  
+    const r: number = Math.round(r1 + (r2 - r1) * f);
+    const g: number = Math.round(g1 + (g2 - g1) * f);
+    const b: number = Math.round(b1 + (b2 - b1) * f);
+  
+    return { r, g, b };
+}
+
+const COLORMAPS = {viridis, magma};

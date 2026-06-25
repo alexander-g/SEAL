@@ -13,9 +13,7 @@ export type WorkerInitCommand = {
 }
 
 
-export type WorkerPlotDataCommand = {
-    command: 'plot-data'|'plot-spectrogram'|'plot-modulation-power-spectrum';
-
+type WorkerPlotBaseCommand = {
     /** Data to plot */
     data: Float32Array;
 
@@ -36,12 +34,19 @@ export type WorkerPlotDataCommand = {
 
     /** Unique id to identify parallel messages. Will return in result */
     uuid: string;
-
 }
 
-export type WorkerSpectrogramCommand = 
-    Omit<WorkerPlotDataCommand, 'command'> 
-    & {command: Extract<WorkerPlotDataCommand['command'], 'plot-spectrogram'>}
+export type WorkerPlotDataCommand = WorkerPlotBaseCommand & {
+    command: 'plot-data';
+}
+
+export type WorkerSpectrogramCommand = WorkerPlotBaseCommand & {
+    command: 'plot-spectrogram';
+}
+
+export type WorkerModulationPowerSpectrumCommand = WorkerPlotBaseCommand & {
+    command: 'plot-modulation-power-spectrum';
+}
 
 
 
@@ -60,6 +65,8 @@ export type WorkerPrepareForAudioCommand = {
 export type WorkerCommand = 
     WorkerInitCommand
     | WorkerPlotDataCommand
+    | WorkerSpectrogramCommand
+    | WorkerModulationPowerSpectrumCommand
     | WorkerPrepareForAudioCommand;
 
 
@@ -91,6 +98,15 @@ export type WorkerSpectrogramResult = {
     data: SpectrogramData;
 }
 
+export type WorkerModulationPowerSpectrumResult = {
+    message: 'mps-data-result';
+
+    /** Unique id passed in command. */
+    uuid: string;
+
+    data: SpectrogramData;
+}
+
 export type WorkerPrepareForAudioResult = {
     message: 'prepare-for-audio-result';
 
@@ -103,6 +119,7 @@ type WorkerResult =
     WorkerReadyResult 
     | WorkerPlotDataResult 
     | WorkerSpectrogramResult
+    | WorkerModulationPowerSpectrumResult
     | WorkerPrepareForAudioResult
     | Error;
 export type WorkerMessage = WorkerResult;
@@ -137,10 +154,7 @@ self.onmessage = async (e:MessageEvent) => {
             pyodide = pyo;
             result = {message:'ready'}
         }
-    } else if(
-        data.command == 'plot-data'
-        || data.command == 'plot-modulation-power-spectrum'
-    ) {
+    } else if(data.command == 'plot-data') {
         if(pyodide == null)
             result = new Error('Pyodide in worker not initialized');
         else
@@ -151,6 +165,14 @@ self.onmessage = async (e:MessageEvent) => {
         else
             result = await handle_plot_spectrogram(
                 data as WorkerSpectrogramCommand, 
+                pyodide
+            )
+    } else if (data.command == 'plot-modulation-power-spectrum') {
+        if(pyodide == null)
+            result = new Error('Pyodide in worker not initialized');
+        else
+            result = await handle_mps_data(
+                data as WorkerModulationPowerSpectrumCommand,
                 pyodide
             )
     } else if (data.command == 'prepare-for-audio') {
@@ -172,16 +194,7 @@ async function handle_plot_data(
     data:    WorkerPlotDataCommand, 
     pyodide: Pyodide
 ): Promise<WorkerPlotDataResult|Error> {
-    const plot_fn = 
-        data.command == 'plot-data'
-        ? pyodide.plot_data.bind(pyodide)
-        : data.command == 'plot-modulation-power-spectrum'
-            ? pyodide.plot_modulation_power_spectrum.bind(pyodide)
-        : new Error(`Unexpected command: ${data.command}`);
-    if(plot_fn instanceof Error)
-        return plot_fn as Error
-
-    const output:File|Error = await plot_fn(
+    const output:File|Error = await pyodide.plot_data(
         data.data,
         data.i0,
         data.i1,
@@ -224,6 +237,30 @@ async function handle_plot_spectrogram(
 
     return {
         message: 'spectrogram-data-result',
+        data: output,
+        uuid: data.uuid,
+    }
+}
+
+
+async function handle_mps_data(
+    data:    WorkerModulationPowerSpectrumCommand,
+    pyodide: Pyodide
+): Promise<WorkerModulationPowerSpectrumResult|Error> {
+    const output:SpectrogramData|Error =
+        await pyodide.plot_modulation_power_spectrum(
+            data.data,
+            data.i0,
+            data.i1,
+            data.start_time,
+            data.sample_rate_hz,
+            data.title,
+        )
+    if(output instanceof Error)
+        return output as Error
+
+    return {
+        message: 'mps-data-result',
         data: output,
         uuid: data.uuid,
     }

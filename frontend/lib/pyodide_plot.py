@@ -288,10 +288,7 @@ def create_spectrogram_for_visualization(
     data: npt.NDArray[np.float32],
     i0:  int,
     i1:  int,
-    start_timestamp_s: float,
     sample_rate_hz:    float,
-    title: str,
-    output_path: tp.Optional[str],
 ) -> SpectrogramDataDict:
     """Return spectrogram data for a time slice."""
     # NOTE: data is a memoryview when called from JS, making sure its numpy
@@ -321,13 +318,9 @@ def plot_modulation_power_spectrum(
     data: npt.NDArray[np.float32],
     i0: int,
     i1: int,
-    start_timestamp_s: float,
     sample_rate_hz: float,
-    title: str,
-    output_path: tp.Optional[str],
-) -> None:
-    '''Plot modulation power spectrum and optionally save it to a PNG file.'''
-    _ = start_timestamp_s
+) -> SpectrogramDataDict:
+    '''Return modulation power spectrum data for visualization.'''
     data = np.asarray(data, dtype=np.float32)
     start: int
     stop: int
@@ -340,26 +333,16 @@ def plot_modulation_power_spectrum(
     )
 
     mps_log = 10.0 * np.log10(np.maximum(mps.data, 1e-12))
+    inverted: npt.NDArray[np.float64] = mps_log.max() - mps_log
+    normalized: npt.NDArray[np.float32] = scale_spectrogram_to_range(inverted)
 
-    fig, ax = plt.subplots()
-    ax.pcolor(
-        mps.temporal_axis,
-        mps.spectral_axis,
-        #mps.data,
-        mps_log.max() - mps_log,
-        cmap = 'magma',
-        # shading='auto',
-    )
-    ax.set_xlabel('Temporal Modulation (Hz)')
-    ax.set_ylabel('Spectral Modulation (1/Hz)')
-    ax.set_title(f'{title} - Modulation Power Spectrum')
-
-    plt.tight_layout()
-
-    if output_path is not None:
-        fig.savefig(output_path)
-
-    plt.close(fig)
+    return {
+        't_axis': mps.temporal_axis.astype(np.float32),
+        'f_axis': mps.spectral_axis.astype(np.float32),
+        'power':  normalized.astype(np.float32).ravel(),
+        'rows':   int(mps.spectral_axis.size),
+        'cols':   int(mps.temporal_axis.size),
+    }
 
 
 

@@ -4,7 +4,7 @@ import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
 import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
 import { MSEED_Heatmap } from './mseed-heatmap.tsx'
-import { PlotImage, ContainerWithOverlay } from './plot-image.tsx'
+import { ContainerWithOverlay } from './plot-image.tsx'
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
@@ -81,10 +81,25 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'mps',
                 label: 'Modulation Power Spectrum',
-                element: <PlotImage 
-                    ref = {this.mps_img_ref} 
-                    $is_loading = {this.$plots_loading} 
-                />,
+                element:
+                <ContainerWithOverlay
+                    $is_loading     = {this.$plots_loading}
+                    loading_message = 'Select a MSEED channel and time to plot here.'
+                >
+                    <D3Heatmap
+                        $data   = {this.$mps_heatmap_data}
+                        $x_axis = {this.$mps_temporal_axis}
+                        $y_axis = {this.$mps_spectral_axis}
+                        on_click = {this.on_mps_click}
+                        $title   = {this.$mps_title}
+                        y_axis_label = 'Spectral Modulation (1/Hz)'
+                        x_axis_label = 'Temporal Modulation (Hz)'
+                        x_axis_label_formatter = {this.format_mps_axis_value}
+                        enable_hover = {false}
+                        enable_zoom  = {false}
+                        colormap     = 'magma'
+                    />
+                </ContainerWithOverlay>,
             },
             {
                 key: 'map',
@@ -365,7 +380,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                     mseed.meta.samplerate,
                     code,
                 )
-            const mps_promise:Promise<File|Error> =
+            const mps_promise:Promise<SpectrogramData|Error> =
                 this.pyodide.plot_modulation_power_spectrum(
                     data,
                     i0,
@@ -412,14 +427,20 @@ export class MainContent extends preact.Component<MainContentProps> {
             this.$spectrogram_heatmap_data.value = 
                 spectrogram_to_heatmap(spectrogram_data)
 
-            const mps_png:File|Error = await mps_promise
-            if(mps_png instanceof Error) {
+            const mps_data:SpectrogramData|Error = await mps_promise
+            if(mps_data instanceof Error) {
                 console.error(
-                    `Error plotting modulation power spectrum: ${mps_png.message}`
+                    `Error plotting modulation power spectrum: ${mps_data.message}`
                 )
                 return
             }
-            this.mps_img_ref.current?.set_src(mps_png)
+            this.$mps_temporal_axis.value = Array.from(mps_data.t_axis)
+            this.$mps_spectral_axis.value = Array.from(
+                mps_data.f_axis,
+                f => format_frequency_label(f)
+            )
+            this.$mps_title.value = `${code} - Modulation Power Spectrum`
+            this.$mps_heatmap_data.value = spectrogram_to_heatmap(mps_data)
         } finally {
             this.$plots_loading.value = false
 
@@ -429,15 +450,32 @@ export class MainContent extends preact.Component<MainContentProps> {
     }
 
 
-    // references to components
-    mps_img_ref:preact.RefObject<PlotImage> = preact.createRef()
-
     $spectrogram_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
     $spectrogram_time_axis:      Signal<number[]>          = new Signal([])
     $spectrogram_frequency_axis: Signal<string[]>          = new Signal(['0'])
     $spectrogram_title:          Signal<string>            = new Signal('')
 
     on_spectrogram_click = (_selected:number) => {}
+
+    $mps_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
+    $mps_temporal_axis:  Signal<number[]>          = new Signal([])
+    $mps_spectral_axis:  Signal<string[]>          = new Signal(['0'])
+    $mps_title:          Signal<string>            = new Signal('')
+
+    on_mps_click = (_selected:number) => {}
+
+    format_mps_axis_value = (value:number): string => {
+        if(!Number.isFinite(value))
+            return ''
+
+        if(Math.abs(value) >= 10)
+            return value.toFixed(0)
+
+        if(Math.abs(value) >= 1)
+            return value.toFixed(1)
+
+        return value.toFixed(2)
+    }
 
 }
 
