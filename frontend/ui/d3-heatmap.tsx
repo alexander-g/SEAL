@@ -7,6 +7,11 @@ import {
     VerticalMarkerLayer,
 } from './d3-heatmap-markers.tsx'
 import { Axes } from "./d3-heatmap-axes.tsx";
+import { 
+    PlotTitleLabel, 
+    PlotXAxisLabel, 
+    PlotYAxisLabel 
+} from "./d3-plot-labels.tsx"
 
 
 
@@ -26,6 +31,7 @@ export class D3Heatmap extends preact.Component<{
     $x_axis:Readonly<Signal<number[]>>,
     $y_axis:Readonly<Signal<string[]>>,
 
+
     /** Optional positions along the x axis to mark with a vertical line */
     $x_axis_markers?: Readonly<Signal<number[]>>
 
@@ -37,6 +43,14 @@ export class D3Heatmap extends preact.Component<{
 
     /** Called when user hovers on a valid item, null otherwise */
     on_hover?: (selected:HoverCallbackPosition|null) => void,
+
+
+    $title?:       Readonly<Signal<string>>,
+    x_axis_label?: string,
+    y_axis_label?: string,
+
+    enable_zoom?:  boolean,
+    enable_hover?: boolean,
 }> {
     private static next_clip_id:number = 0
     private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
@@ -51,7 +65,7 @@ export class D3Heatmap extends preact.Component<{
     svgimage_ref:  preact.RefObject<SVGImageElement> = preact.createRef();
     resize_observer: ResizeObserver|null = null
 
-    private margin: PlotMargin = { top: 5, right: 5, bottom: 30, left: 60 }
+    private margin: PlotMargin = { top: 24, right: 12, bottom: 40, left: 60 }
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
     private $hover_position: Signal<HoverPosition|null> = new Signal(null)
     private heatmap_image_url:string|null = null
@@ -137,12 +151,15 @@ export class D3Heatmap extends preact.Component<{
                                 $cols        = {this.$n_cols}
                             />
 
-                            <HoverMarker 
-                                $position   = {this.$hover_position} 
-                                $dataitems  = {this.props.$data}
-                                $dimensions = {this.$dimensions}
-                                $rowscols   = {this.$rowscols}
-                            />
+                            {this.#is_hover_enabled()
+                                ? <HoverMarker 
+                                    $position   = {this.$hover_position} 
+                                    $dataitems  = {this.props.$data}
+                                    $dimensions = {this.$dimensions}
+                                    $rowscols   = {this.$rowscols}
+                                />
+                                : null
+                            }
                         </g>
                     </g>
 
@@ -153,7 +170,23 @@ export class D3Heatmap extends preact.Component<{
                         $x_axis         = {this.props.$x_axis}
                         $zoom_transform = {this.$zoom_transform}
                     />
-                    <HoverOverlay $position = {this.$hover_position} />
+                    <PlotTitleLabel 
+                        $plot_width = {this.$plot_width} 
+                        $title      = {this.props.$title} 
+                    />
+                    <PlotXAxisLabel 
+                        text         = {this.props.x_axis_label}
+                        $plot_height = {this.$plot_height} 
+                        $plot_width  = {this.$plot_width}
+                    />
+                    <PlotYAxisLabel
+                        text         = {this.props.y_axis_label}
+                        $plot_height = {this.$plot_height}
+                    />
+                    {this.#is_hover_enabled()
+                        ? <HoverOverlay $position = {this.$hover_position} />
+                        : null
+                    }
                 </g>
             </svg>
         </div>
@@ -197,10 +230,12 @@ export class D3Heatmap extends preact.Component<{
     )
 
     override componentDidMount(): void {
-        d3.select(this.svg_ref.current!)
-            .call(this.zoom)
-            // no zoom on doubleclick
-            .on('dblclick.zoom', null);
+        if(this.#is_zoom_enabled()) {
+            d3.select(this.svg_ref.current!)
+                .call(this.zoom)
+                // no zoom on doubleclick
+                .on('dblclick.zoom', null)
+        }
 
         const container:HTMLDivElement|null = this.container_ref.current
         if(container != null) {
@@ -344,6 +379,8 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmousemove:preact.MouseEventHandler<SVGImageElement> = (event) => {
+        if(!this.#is_hover_enabled())
+            return
         const [mx, my] = d3.pointer(event, this.svgimage_ref.current)
         const [root_x, root_y] = d3.pointer(event, this.root_ref.current)
         const position:HoverPosition|null = 
@@ -358,8 +395,18 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmouseleave:preact.MouseEventHandler<SVGImageElement> = () => {
+        if(!this.#is_hover_enabled())
+            return
         this.$hover_position.value = null
         this.props.on_hover?.(null)
+    }
+
+    #is_zoom_enabled(): boolean {
+        return this.props.enable_zoom != false
+    }
+
+    #is_hover_enabled(): boolean {
+        return this.props.enable_hover != false
     }
 
 

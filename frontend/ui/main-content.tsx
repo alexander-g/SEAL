@@ -70,6 +70,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                         $x_axis = {this.$spectrogram_time_axis}
                         $y_axis = {this.$spectrogram_frequency_axis}
                         on_click = {this.on_spectrogram_click}
+                        $title   = {this.$spectrogram_title}
+                        y_axis_label = 'Frequency (Hz)'
+                        x_axis_label = 'Time (UTC)'
+                        enable_hover = {false}
+                        enable_zoom  = {false}
                     />
                 </ContainerWithOverlay>,
             },
@@ -376,7 +381,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 i1,
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
-                title:          code,
+                title:          `${code} - Signal`,
             }
             this.$audiodata.value = { 
                 data:       await slice_and_prepare_audio(data, i0, i1, mseed.meta.samplerate, this.pyodide!), 
@@ -402,6 +407,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 spectrogram_data.f_axis,
                 f => format_frequency_label(f)
             )
+            this.$spectrogram_title.value = `${code} - Spectrogram`
 
             this.$spectrogram_heatmap_data.value = 
                 spectrogram_to_heatmap(spectrogram_data)
@@ -426,9 +432,10 @@ export class MainContent extends preact.Component<MainContentProps> {
     // references to components
     mps_img_ref:preact.RefObject<PlotImage> = preact.createRef()
 
-    $spectrogram_heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
-    $spectrogram_time_axis: Signal<number[]> = new Signal([])
-    $spectrogram_frequency_axis: Signal<string[]> = new Signal(['0'])
+    $spectrogram_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
+    $spectrogram_time_axis:      Signal<number[]>          = new Signal([])
+    $spectrogram_frequency_axis: Signal<string[]>          = new Signal(['0'])
+    $spectrogram_title:          Signal<string>            = new Signal('')
 
     on_spectrogram_click = (_selected:number) => {}
 

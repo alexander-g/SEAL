@@ -1,6 +1,11 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 import { OverlayDiv } from './overlay-div.tsx'
 import { strftime_ISO8601_time, strftime_ISO8601_datetime } from "../lib/util.ts"
+import { 
+    PlotTitleLabel, 
+    PlotXAxisLabel, 
+    PlotYAxisLabel 
+} from "./d3-plot-labels.tsx"
 
 import * as d3 from 'd3'
 
@@ -33,7 +38,6 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
     path_ref: preact.RefObject<SVGPathElement> = preact.createRef()
     xaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
     yaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
-    title_ref: preact.RefObject<SVGTextElement> = preact.createRef()
 
     resize_observer: ResizeObserver | null = null
 
@@ -55,18 +59,6 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
     )
     private $x_axis_transform: Readonly<Signal<string>> = signals.computed(() =>
         `translate(0,${this.$plot_height.value})`
-    )
-    private $title_x: Readonly<Signal<number>> = signals.computed(() =>
-        this.$plot_width.value / 2
-    )
-    private $x_label_x: Readonly<Signal<number>> = signals.computed(() =>
-        this.$plot_width.value / 2
-    )
-    private $x_label_y: Readonly<Signal<number>> = signals.computed(() =>
-        this.$plot_height.value + 32
-    )
-    private $y_label_x: Readonly<Signal<number>> = signals.computed(() =>
-        -this.$plot_height.value / 2
     )
 
     $initialized: Signal<boolean> = new Signal(false)
@@ -126,33 +118,19 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                     <g ref = {this.yaxis_ref} />
                     <g ref = {this.xaxis_ref} transform = {this.$x_axis_transform} />
 
-                    <text
-                        ref = {this.title_ref}
-                        x = {this.$title_x}
-                        y = {-8}
-                        text-anchor = 'middle'
-                        font-size = '12px'
-                        font-family = 'sans-serif'
+                    <PlotTitleLabel 
+                        $plot_width = {this.$plot_width}
+                        $title      = {this.$plot_title}
                     />
-                    <text
-                        x = {this.$x_label_x}
-                        y = {this.$x_label_y}
-                        text-anchor = 'middle'
-                        font-size = '11px'
-                        font-family = 'sans-serif'
-                    >
-                        Time (UTC)
-                    </text>
-                    <text
-                        x = {this.$y_label_x}
-                        y = {-46}
-                        transform = 'rotate(-90)'
-                        text-anchor = 'middle'
-                        font-size = '11px'
-                        font-family = 'sans-serif'
-                    >
-                        Amplitude
-                    </text>
+                    <PlotXAxisLabel 
+                        text         = 'Time (UTC)'
+                        $plot_height = {this.$plot_height} 
+                        $plot_width  = {this.$plot_width}
+                    />
+                    <PlotYAxisLabel
+                        text         = 'Amplitude'
+                        $plot_height = {this.$plot_height}
+                    />
                 </g>
             </svg>
 
@@ -207,8 +185,6 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         if(this.path_ref.current == null)
             return
         if(this.xaxis_ref.current == null || this.yaxis_ref.current == null)
-            return
-        if(this.title_ref.current == null)
             return
 
         const plot_data: SignalPlotData | null = this.props.$plot_data.value
@@ -299,7 +275,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         d3.select(this.yaxis_ref.current)
             .call(y_axis)
 
-        this.title_ref.current.textContent = plot_data.title
+        this.$plot_title.value = plot_data.title
         this.$initialized.value = true
         this.$status_message.value = ''
     }
@@ -311,9 +287,10 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             d3.select(this.xaxis_ref.current).selectAll('*').remove()
         if(this.yaxis_ref.current != null)
             d3.select(this.yaxis_ref.current).selectAll('*').remove()
-        if(this.title_ref.current != null)
-            this.title_ref.current.textContent = ''
+        this.$plot_title.value = ''
     }
+
+    private $plot_title: Signal<string> = new Signal('')
 }
 
 
