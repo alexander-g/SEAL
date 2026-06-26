@@ -63,10 +63,12 @@ export class MSEED_Heatmap extends preact.Component<{
             $data    = {this.$transformed_files}
             $x_axis  = {this.$x_axis}
             $y_axis  = {this.$y_axis}
+            $y_axis_tick_values = {this.$y_axis_tick_values}
             $x_axis_markers = { this.$itemized_event_timestamps }
             $y_axis_markers = { this.$highlighted_rows }
             on_click = {this.on_heatmap_select}
             on_hover = {this.on_heatmap_hover}
+            y_axis_label_formatter = {this.format_station_axis_label}
         />
     }
 
@@ -116,6 +118,10 @@ export class MSEED_Heatmap extends preact.Component<{
 
     $y_axis:Readonly<Signal<string[]>> = signals.computed(() => {
         return this.$transformed.value.y_axis
+    })
+
+    $y_axis_tick_values:Readonly<Signal<number[]>> = signals.computed(() => {
+        return build_station_group_ticks(this.$y_axis.value)
     })
 
 
@@ -221,6 +227,10 @@ export class MSEED_Heatmap extends preact.Component<{
         this.props.on_click(item.mseedindex, i0, i1);
     }
 
+    format_station_axis_label = (index:number, y_axis:string[]): string => {
+        return get_station_group_label_at(y_axis, index) ?? ''
+    }
+
     /** Transforming the input $highlighted_station to the y-axis */
     private $highlighted_rows:Readonly<Signal<number[]>> = signals.computed( () => {
         const y_axis:string[] = this.$transformed.value.y_axis
@@ -295,6 +305,42 @@ function inference2map(inferences:InferenceEvent[]): Record<string, Date[]> {
         output[inference.code] = (output[inference.code] ?? []).concat([inference.time])
     }
     return output;
+}
+
+/** Build y-axis ticks at station group boundaries */
+function build_station_group_ticks(y_axis:string[]): number[] {
+    if(y_axis.length == 0)
+        return []
+
+    const ticks:number[] = []
+    let previous_station_code:string|null = null
+    for(let row_index:number = 0; row_index < y_axis.length; row_index++) {
+        const station_code:string = extract_station_code(y_axis[row_index]!)
+        if(previous_station_code == null || station_code != previous_station_code)
+            ticks.push(row_index)
+        previous_station_code = station_code
+    }
+
+    const last_boundary:number = y_axis.length
+    const last_tick:number|undefined = ticks[ticks.length - 1]
+    if(last_tick != last_boundary)
+        ticks.push(last_boundary)
+    return ticks
+}
+
+/** Resolve the label for a station group at a tick */
+function get_station_group_label_at(y_axis:string[], tick_index:number): string | null {
+    if(tick_index < 0 || tick_index >= y_axis.length)
+        return null
+    return extract_station_code(y_axis[tick_index]!)
+}
+
+/** Extract station code from combined MSEED code */
+function extract_station_code(code:string): string {
+    const parts:string[] = code.split('.')
+    if(parts.length < 2)
+        return code
+    return parts[1]!
 }
 
 function find_inference(

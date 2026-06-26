@@ -31,6 +31,9 @@ export class D3Heatmap extends preact.Component<{
     $x_axis:Readonly<Signal<number[]>>,
     $y_axis:Readonly<Signal<string[]>>,
 
+    /** Optional values for y axis ticks */
+    $y_axis_tick_values?: Readonly<Signal<number[]>>
+
 
     /** Optional positions along the x axis to mark with a vertical line */
     $x_axis_markers?: Readonly<Signal<number[]>>
@@ -49,6 +52,7 @@ export class D3Heatmap extends preact.Component<{
     x_axis_label?: string,
     y_axis_label?: string,
     x_axis_label_formatter?: (value:number) => string,
+    y_axis_label_formatter?: (index:number, y_axis:string[]) => string,
 
     enable_zoom?:  boolean,
     enable_hover?: boolean,
@@ -171,8 +175,11 @@ export class D3Heatmap extends preact.Component<{
                         $dimensions     = {this.$dimensions}
                         $rowscols       = {this.$rowscols}
                         $x_axis         = {this.props.$x_axis}
+                        $y_axis         = {this.props.$y_axis}
+                        $y_axis_tick_values = {this.props.$y_axis_tick_values}
                         $zoom_transform = {this.$zoom_transform}
                         x_axis_label_formatter = {this.props.x_axis_label_formatter}
+                        y_axis_label_formatter = {this.props.y_axis_label_formatter}
                     />
                     <PlotTitleLabel 
                         $plot_width = {this.$plot_width} 
