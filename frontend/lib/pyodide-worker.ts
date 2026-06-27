@@ -13,9 +13,7 @@ export type WorkerInitCommand = {
 }
 
 
-export type WorkerPlotDataCommand = {
-    command: 'plot-data'|'plot-spectrogram'|'plot-modulation-power-spectrum';
-
+type WorkerPlotBaseCommand = {
     /** Data to plot */
     data: Float32Array;
 
@@ -36,8 +34,21 @@ export type WorkerPlotDataCommand = {
 
     /** Unique id to identify parallel messages. Will return in result */
     uuid: string;
-
 }
+
+export type WorkerPlotDataCommand = WorkerPlotBaseCommand & {
+    command: 'plot-data';
+}
+
+export type WorkerSpectrogramCommand = WorkerPlotBaseCommand & {
+    command: 'plot-spectrogram';
+}
+
+export type WorkerModulationPowerSpectrumCommand = WorkerPlotBaseCommand & {
+    command: 'plot-modulation-power-spectrum';
+}
+
+
 
 export type WorkerPrepareForAudioCommand = {
     command: 'prepare-for-audio';
@@ -54,6 +65,8 @@ export type WorkerPrepareForAudioCommand = {
 export type WorkerCommand = 
     WorkerInitCommand
     | WorkerPlotDataCommand
+    | WorkerSpectrogramCommand
+    | WorkerModulationPowerSpectrumCommand
     | WorkerPrepareForAudioCommand;
 
 
@@ -76,6 +89,24 @@ export type WorkerPlotDataResult = {
     outputdata_png: Uint8Array<ArrayBuffer>;
 }
 
+export type WorkerSpectrogramResult = {
+    message: 'spectrogram-data-result';
+
+    /** Unique id passed in command. */
+    uuid: string;
+
+    data: SpectrogramData;
+}
+
+export type WorkerModulationPowerSpectrumResult = {
+    message: 'mps-data-result';
+
+    /** Unique id passed in command. */
+    uuid: string;
+
+    data: SpectrogramData;
+}
+
 export type WorkerPrepareForAudioResult = {
     message: 'prepare-for-audio-result';
 
@@ -87,9 +118,20 @@ export type WorkerPrepareForAudioResult = {
 type WorkerResult = 
     WorkerReadyResult 
     | WorkerPlotDataResult 
+    | WorkerSpectrogramResult
+    | WorkerModulationPowerSpectrumResult
     | WorkerPrepareForAudioResult
     | Error;
 export type WorkerMessage = WorkerResult;
+
+
+export type SpectrogramData = {
+    t_axis: Float32Array,
+    f_axis: Float32Array,
+    power:  Float32Array,
+    rows:   number,
+    cols:   number,
+}
 
 
 
@@ -112,15 +154,27 @@ self.onmessage = async (e:MessageEvent) => {
             pyodide = pyo;
             result = {message:'ready'}
         }
-    } else if(
-        data.command == 'plot-data'
-        || data.command == 'plot-spectrogram'
-        || data.command == 'plot-modulation-power-spectrum'
-    ) {
+    } else if(data.command == 'plot-data') {
         if(pyodide == null)
             result = new Error('Pyodide in worker not initialized');
         else
             result = await handle_plot_data(data, pyodide)
+    } else if (data.command == 'plot-spectrogram') {
+        if(pyodide == null)
+            result = new Error('Pyodide in worker not initialized');
+        else
+            result = await handle_plot_spectrogram(
+                data as WorkerSpectrogramCommand, 
+                pyodide
+            )
+    } else if (data.command == 'plot-modulation-power-spectrum') {
+        if(pyodide == null)
+            result = new Error('Pyodide in worker not initialized');
+        else
+            result = await handle_mps_data(
+                data as WorkerModulationPowerSpectrumCommand,
+                pyodide
+            )
     } else if (data.command == 'prepare-for-audio') {
         if(pyodide == null)
             result = new Error('Pyodide in worker not initialized');
@@ -140,18 +194,7 @@ async function handle_plot_data(
     data:    WorkerPlotDataCommand, 
     pyodide: Pyodide
 ): Promise<WorkerPlotDataResult|Error> {
-    const plot_fn = 
-        data.command == 'plot-data'
-        ? pyodide.plot_data.bind(pyodide)
-        : data.command == 'plot-spectrogram'
-            ? pyodide.plot_spectrogram.bind(pyodide)
-            : data.command == 'plot-modulation-power-spectrum'
-                ? pyodide.plot_modulation_power_spectrum.bind(pyodide)
-            : new Error(`Unexpected command: ${data.command}`);
-    if(plot_fn instanceof Error)
-        return plot_fn as Error
-
-    const output:File|Error = await plot_fn(
+    const output:File|Error = await pyodide.plot_data(
         data.data,
         data.i0,
         data.i1,
@@ -174,6 +217,53 @@ async function handle_plot_data(
     };
     
     return message;
+}
+
+
+async function handle_plot_spectrogram(
+    data:    WorkerSpectrogramCommand,
+    pyodide: Pyodide
+): Promise<WorkerSpectrogramResult|Error> {
+    const output:SpectrogramData|Error = await pyodide.plot_spectrogram(
+        data.data,
+        data.i0,
+        data.i1,
+        data.start_time,
+        data.sample_rate_hz,
+        data.title,
+    )
+    if(output instanceof Error)
+        return output as Error
+
+    return {
+        message: 'spectrogram-data-result',
+        data: output,
+        uuid: data.uuid,
+    }
+}
+
+
+async function handle_mps_data(
+    data:    WorkerModulationPowerSpectrumCommand,
+    pyodide: Pyodide
+): Promise<WorkerModulationPowerSpectrumResult|Error> {
+    const output:SpectrogramData|Error =
+        await pyodide.plot_modulation_power_spectrum(
+            data.data,
+            data.i0,
+            data.i1,
+            data.start_time,
+            data.sample_rate_hz,
+            data.title,
+        )
+    if(output instanceof Error)
+        return output as Error
+
+    return {
+        message: 'mps-data-result',
+        data: output,
+        uuid: data.uuid,
+    }
 }
 
 

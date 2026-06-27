@@ -7,6 +7,11 @@ import {
     VerticalMarkerLayer,
 } from './d3-heatmap-markers.tsx'
 import { Axes } from "./d3-heatmap-axes.tsx";
+import { 
+    PlotTitleLabel, 
+    PlotXAxisLabel, 
+    PlotYAxisLabel 
+} from "./d3-plot-labels.tsx"
 
 
 
@@ -26,6 +31,10 @@ export class D3Heatmap extends preact.Component<{
     $x_axis:Readonly<Signal<number[]>>,
     $y_axis:Readonly<Signal<string[]>>,
 
+    /** Optional values for y axis ticks */
+    $y_axis_tick_values?: Readonly<Signal<number[]>>
+
+
     /** Optional positions along the x axis to mark with a vertical line */
     $x_axis_markers?: Readonly<Signal<number[]>>
 
@@ -37,6 +46,18 @@ export class D3Heatmap extends preact.Component<{
 
     /** Called when user hovers on a valid item, null otherwise */
     on_hover?: (selected:HoverCallbackPosition|null) => void,
+
+
+    $title?:       Readonly<Signal<string>>,
+    x_axis_label?: string,
+    y_axis_label?: string,
+    x_axis_label_formatter?: (value:number) => string,
+    y_axis_label_formatter?: (index:number, y_axis:string[]) => string,
+
+    enable_zoom?:  boolean,
+    enable_hover?: boolean,
+
+    colormap?: 'viridis'|'magma',
 }> {
     private static next_clip_id:number = 0
     private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
@@ -51,7 +72,7 @@ export class D3Heatmap extends preact.Component<{
     svgimage_ref:  preact.RefObject<SVGImageElement> = preact.createRef();
     resize_observer: ResizeObserver|null = null
 
-    private margin: PlotMargin = { top: 5, right: 5, bottom: 30, left: 60 }
+    private margin: PlotMargin = { top: 24, right: 12, bottom: 40, left: 60 }
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
     private $hover_position: Signal<HoverPosition|null> = new Signal(null)
     private heatmap_image_url:string|null = null
@@ -137,12 +158,15 @@ export class D3Heatmap extends preact.Component<{
                                 $cols        = {this.$n_cols}
                             />
 
-                            <HoverMarker 
-                                $position   = {this.$hover_position} 
-                                $dataitems  = {this.props.$data}
-                                $dimensions = {this.$dimensions}
-                                $rowscols   = {this.$rowscols}
-                            />
+                            {this.#is_hover_enabled()
+                                ? <HoverMarker 
+                                    $position   = {this.$hover_position} 
+                                    $dataitems  = {this.props.$data}
+                                    $dimensions = {this.$dimensions}
+                                    $rowscols   = {this.$rowscols}
+                                />
+                                : null
+                            }
                         </g>
                     </g>
 
@@ -151,9 +175,29 @@ export class D3Heatmap extends preact.Component<{
                         $dimensions     = {this.$dimensions}
                         $rowscols       = {this.$rowscols}
                         $x_axis         = {this.props.$x_axis}
+                        $y_axis         = {this.props.$y_axis}
+                        $y_axis_tick_values = {this.props.$y_axis_tick_values}
                         $zoom_transform = {this.$zoom_transform}
+                        x_axis_label_formatter = {this.props.x_axis_label_formatter}
+                        y_axis_label_formatter = {this.props.y_axis_label_formatter}
                     />
-                    <HoverOverlay $position = {this.$hover_position} />
+                    <PlotTitleLabel 
+                        $plot_width = {this.$plot_width} 
+                        $title      = {this.props.$title} 
+                    />
+                    <PlotXAxisLabel 
+                        text         = {this.props.x_axis_label}
+                        $plot_height = {this.$plot_height} 
+                        $plot_width  = {this.$plot_width}
+                    />
+                    <PlotYAxisLabel
+                        text         = {this.props.y_axis_label}
+                        $plot_height = {this.$plot_height}
+                    />
+                    {this.#is_hover_enabled()
+                        ? <HoverOverlay $position = {this.$hover_position} />
+                        : null
+                    }
                 </g>
             </svg>
         </div>
@@ -197,10 +241,12 @@ export class D3Heatmap extends preact.Component<{
     )
 
     override componentDidMount(): void {
-        d3.select(this.svg_ref.current!)
-            .call(this.zoom)
-            // no zoom on doubleclick
-            .on('dblclick.zoom', null);
+        if(this.#is_zoom_enabled()) {
+            d3.select(this.svg_ref.current!)
+                .call(this.zoom)
+                // no zoom on doubleclick
+                .on('dblclick.zoom', null)
+        }
 
         const container:HTMLDivElement|null = this.container_ref.current
         if(container != null) {
@@ -262,12 +308,15 @@ export class D3Heatmap extends preact.Component<{
 
         const imdata:ImageData = ctx.getImageData(0,0,w,h);
         const buffer:Uint8ClampedArray = imdata.data; // w*h*4
+        const cmap: (t:number) => RGB = COLORMAPS[this.props.colormap ?? 'viridis']
         for(const item of data) {
-            const index:number = item.y * w * 4 + item.x * 4;
+            const row:number = rows - 1 - item.y
+            const index:number = row * w * 4 + item.x * 4;
             if(typeof item.color == 'number') {
-                buffer[index + 0] = item.color * 255; 
-                buffer[index + 1] = item.color * 255;
-                buffer[index + 2] = 0;
+                const rgb:RGB = cmap(item.color);
+                buffer[index + 0] = rgb.r; 
+                buffer[index + 1] = rgb.g;
+                buffer[index + 2] = rgb.b;
             } else {
                 buffer[index + 0] = item.color.r; 
                 buffer[index + 1] = item.color.g;
@@ -342,6 +391,8 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmousemove:preact.MouseEventHandler<SVGImageElement> = (event) => {
+        if(!this.#is_hover_enabled())
+            return
         const [mx, my] = d3.pointer(event, this.svgimage_ref.current)
         const [root_x, root_y] = d3.pointer(event, this.root_ref.current)
         const position:HoverPosition|null = 
@@ -356,8 +407,18 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmouseleave:preact.MouseEventHandler<SVGImageElement> = () => {
+        if(!this.#is_hover_enabled())
+            return
         this.$hover_position.value = null
         this.props.on_hover?.(null)
+    }
+
+    #is_zoom_enabled(): boolean {
+        return this.props.enable_zoom != false
+    }
+
+    #is_hover_enabled(): boolean {
+        return this.props.enable_hover != false
     }
 
 
@@ -475,7 +536,7 @@ function HoverMarker(props:{
     const item_height:number = plot_height / colsrows.rows;
     
     const x:number = item_width * item.x;
-    const y:number = item_height * item.y;
+    const y:number = item_height * (colsrows.rows - 1 - item.y)
 
     return <rect
         x            = {`${x}`}
@@ -598,7 +659,9 @@ export function mouse_to_col(mx: number, plot_width: number, cols: number): numb
 /** Convert mouse coordinate to row index */
 export function mouse_to_row(my: number, plot_height: number, rows: number): number {
     const clamped_y: number = Math.max(0, Math.min(my, plot_height))
-    return Math.min(Math.floor((clamped_y / plot_height) * rows), rows - 1)
+    const row_from_top:number =
+        Math.min(Math.floor((clamped_y / plot_height) * rows), rows - 1)
+    return rows - 1 - row_from_top
 }
 
 /** Convert plot coordinate to column index */
@@ -608,7 +671,8 @@ export function plot_x_to_col(mx: number, plot_width: number, cols: number): num
 
 /** Convert plot coordinate to row index */
 export function plot_y_to_row(my: number, plot_height: number, rows: number): number {
-    return Math.floor((my / plot_height) * rows)
+    const row_from_top:number = Math.floor((my / plot_height) * rows)
+    return rows - 1 - row_from_top
 }
 
 /** Build O(1) lookup index for heatmap items by grid coordinate */
@@ -691,3 +755,60 @@ export type RGB = {
     g: number;
     b: number;
 }
+
+
+/** Viridis color palette interpolation (0..1 -> RGB) */
+export function viridis(t: number): RGB {
+    const stops:[number, number, number][] = [
+      [ 68,   1,  84],
+      [ 59,  82, 139],
+      [ 33, 145, 140],
+      [ 94, 201,  98],
+      [253, 231,  37],
+    ];
+  
+    t = Math.max(0, Math.min(1, t));
+  
+    const n:number = stops.length - 1;
+    const i:number = Math.min(Math.floor(t * n), n - 1);
+    const f:number = t * n - i;
+  
+    const [r1, g1, b1] = stops[i]!;
+    const [r2, g2, b2] = stops[i + 1]!;
+  
+    const r:number = Math.round(r1 + (r2 - r1) * f);
+    const g:number = Math.round(g1 + (g2 - g1) * f);
+    const b:number = Math.round(b1 + (b2 - b1) * f);
+  
+    return {r, g, b}
+}
+
+
+/** Magma color palette interpolation (0..1 -> RGB) */
+export function magma(t: number): RGB {
+    const stops: [number, number, number][] = [
+      [  0,   0,   4],
+      [ 59,  15, 112],
+      [140,  41, 129],
+      [221,  73, 104],
+      [254, 159, 109],
+      [252, 253, 191],
+    ];
+  
+    t = Math.max(0, Math.min(1, t));
+  
+    const n: number = stops.length - 1;
+    const i: number = Math.min(Math.floor(t * n), n - 1);
+    const f: number = t * n - i;
+  
+    const [r1, g1, b1] = stops[i]!;
+    const [r2, g2, b2] = stops[i + 1]!;
+  
+    const r: number = Math.round(r1 + (r2 - r1) * f);
+    const g: number = Math.round(g1 + (g2 - g1) * f);
+    const b: number = Math.round(b1 + (b2 - b1) * f);
+  
+    return { r, g, b };
+}
+
+const COLORMAPS = {viridis, magma};

@@ -101,7 +101,8 @@ export function compute_y_marker_positions(
         if(value < 0 || value >= n_rows)
             continue
 
-        positions.push((value / n_rows) * plot_height)
+        const row_from_top:number = n_rows - 1 - value
+        positions.push((row_from_top / n_rows) * plot_height)
     }
     return positions
 }
@@ -214,4 +215,3 @@ function MarkerRects(props: {
         />
     ))
 }
-
