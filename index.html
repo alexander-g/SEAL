@@ -18,7 +18,7 @@
 								<rect x="0" y="0" width="1" height="1"></rect>
 							</clipPath>
 						</defs>
-						<g transform="translate(60,5)">
+						<g transform="translate(60,24)">
 							<g clip-path="url(#heatmap-clip-0)">
 								<g transform="translate(0,0) scale(1,1)">
 									<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
@@ -27,6 +27,8 @@
 							</g>
 							<g class="axis" transform="translate(0,1)"></g>
 							<g class="axis"></g>
+							<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif"></text>
+							<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif"></text>
 						</g>
 					</svg>
 				</div>
@@ -60,7 +62,28 @@
 						</div>
 						<div style="flex:1 1 0%;min-width:0px;height:100%;">
 							<div class="container" style="position:relative;width:100%;">
-								<img style="width:100%;height:100%;border:1px gray solid;" />
+								<div class="d3-container" style="width:100%;height:100%;">
+									<svg width="100%" height="100%" viewBox="0 0 0 0">
+										<defs>
+											<clipPath id="heatmap-clip-1">
+												<rect x="0" y="0" width="1" height="1"></rect>
+											</clipPath>
+										</defs>
+										<g transform="translate(60,24)">
+											<g clip-path="url(#heatmap-clip-1)">
+												<g transform="translate(0,0) scale(1,1)">
+													<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
+												</g>
+												<g transform="translate(0,0) scale(1,1)" style="pointer-events:none;"></g>
+											</g>
+											<g class="axis" transform="translate(0,1)"></g>
+											<g class="axis"></g>
+											<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
+											<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Time (UTC)</text>
+											<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Frequency (Hz)</text>
+										</g>
+									</svg>
+								</div>
 								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
 									Select a MSEED channel and time to plot here.
 								</div>
@@ -68,7 +91,28 @@
 						</div>
 						<div style="flex:1 1 0%;min-width:0px;height:100%;display:none;">
 							<div class="container" style="position:relative;width:100%;">
-								<img style="width:100%;height:100%;border:1px gray solid;" />
+								<div class="d3-container" style="width:100%;height:100%;">
+									<svg width="100%" height="100%" viewBox="0 0 0 0">
+										<defs>
+											<clipPath id="heatmap-clip-2">
+												<rect x="0" y="0" width="1" height="1"></rect>
+											</clipPath>
+										</defs>
+										<g transform="translate(60,24)">
+											<g clip-path="url(#heatmap-clip-2)">
+												<g transform="translate(0,0) scale(1,1)">
+													<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
+												</g>
+												<g transform="translate(0,0) scale(1,1)" style="pointer-events:none;"></g>
+											</g>
+											<g class="axis" transform="translate(0,1)"></g>
+											<g class="axis"></g>
+											<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
+											<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Temporal Modulation (Hz)</text>
+											<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Spectral Modulation (1/Hz)</text>
+										</g>
+									</svg>
+								</div>
 								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
 									Select a MSEED channel and time to plot here.
 								</div>
