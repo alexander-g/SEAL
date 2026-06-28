@@ -1,10 +1,13 @@
 import { preact, Signal, signals, JSX } from "../dep.ts"
 
-import { combine_mseed_codes } from "../lib/mseed-parsing.ts";
-import type { MSeedMetadata } from "../lib/mseed-parsing.ts";
-import type { QuakeEvent } from "../lib/quakeml.ts";
-import { D3Heatmap } from "../ui/d3-heatmap.tsx"
-import { type Station } from "../lib/station-xml.ts";
+import { combine_mseed_codes }    from "../lib/mseed-parsing.ts";
+import type { MSeedMetadata }     from "../lib/mseed-parsing.ts";
+import type { QuakeEvent }        from "../lib/quakeml.ts";
+import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
+import { tremorwasm }             from "../lib/file-input.ts";
+import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
+import { HoverActionContainer }   from "../ui/hover-action-container.tsx"
+import { type Station }           from "../lib/station-xml.ts";
 import {
     type HoverCallbackPosition, 
     type DataItem as HeatmapDataItem,
@@ -28,6 +31,10 @@ type HeatmapDataItemWithFile = HeatmapDataItem & {
     timestamp:  number,
 }
 
+type EnvelopeHeatmapItem = HeatmapDataItemWithFile & {
+    color: number
+}
+
 export type InferenceEvent = {
     code:string,
     time:Date
@@ -38,6 +45,9 @@ export type InferenceEvent = {
 export class MSEED_Heatmap extends preact.Component<{
     /** Metadata loaded from MSEED files */
     $mseed_meta:Readonly< Signal<MSeedMetadata[]> >,
+
+    /** MSEED files and metadata */
+    $mseeds: Readonly<Signal<MSEED_FileAndMeta[]>>,
 
     $inference: Readonly<Signal<InferenceEvent[]> >,
 
@@ -59,17 +69,24 @@ export class MSEED_Heatmap extends preact.Component<{
     $highlighted_station?: Signal<Station|null>
 }> {
     render(): JSX.Element {
-        return <D3Heatmap
-            $data    = {this.$transformed_files}
-            $x_axis  = {this.$x_axis}
-            $y_axis  = {this.$y_axis}
-            $y_axis_tick_values = {this.$y_axis_tick_values}
-            $x_axis_markers = { this.$itemized_event_timestamps }
-            $y_axis_markers = { this.$highlighted_rows }
-            on_click = {this.on_heatmap_select}
-            on_hover = {this.on_heatmap_hover}
-            y_axis_label_formatter = {this.format_station_axis_label}
-        />
+        return <HoverActionContainer
+            $action_label    = {this.$action_label}
+            on_action        = {this.compute_signal_envelope}
+            $action_disabled = {this.$action_disabled}
+        >
+            <D3Heatmap
+                $data    = {this.$transformed_files}
+                $x_axis  = {this.$x_axis}
+                $y_axis  = {this.$y_axis}
+                $y_axis_tick_values = {this.$y_axis_tick_values}
+                $x_axis_markers = { this.$itemized_event_timestamps }
+                $y_axis_markers = { this.$highlighted_rows }
+                on_click = {this.on_heatmap_select}
+                on_hover = {this.on_heatmap_hover}
+                y_axis_label_formatter = {this.format_station_axis_label}
+                colormap = 'magma'
+            />
+        </HoverActionContainer>
     }
 
     /** $events, aligned to bins/items */
@@ -105,10 +122,18 @@ export class MSEED_Heatmap extends preact.Component<{
     private $transformed:Readonly<Signal<TransformedHeatmapData>> = signals.computed(() => {
         const files:MSeedMetadata[] = this.props.$mseed_meta.value
         const inference:InferenceEvent[] = this.props.$inference.value
-        return this.transform_heatmap_data(files, inference, HARDCODED_BIN_LENGTH_SECONDS)
+        const transformed:TransformedHeatmapData = this.transform_heatmap_data(
+            files,
+            inference,
+            HARDCODED_BIN_LENGTH_SECONDS,
+        )
+
+        return transformed;
     })
 
     $transformed_files:Readonly<Signal<HeatmapDataItemWithFile[]>> = signals.computed(() => {
+        if(this.$envelopes_on.value && this.$envelope_items.value.length > 0)
+            return this.$envelope_items.value
         return this.$transformed.value.items
     })
 
@@ -277,6 +302,120 @@ export class MSEED_Heatmap extends preact.Component<{
             .flat()
         this.props.on_events_hover?.(event_indices)
     }
+
+    $envelopes_on: Signal<boolean> = new Signal(false)
+    $envelope_items: Signal<EnvelopeHeatmapItem[]> = new Signal([])
+    $loading_envelope: Signal<boolean> = new Signal(false)
+
+    $action_label: Readonly<Signal<string>> = signals.computed(() => {
+        if(this.$loading_envelope.value)
+            return 'Computing envelope heatmap...'
+        if(this.$envelopes_on.value)
+            return 'Hide envelope heatmap'
+        return 'Envelope heatmap'
+    })
+
+
+    $action_disabled: Readonly<Signal<boolean>> = signals.computed(() => {
+        return this.$loading_envelope.value || this.props.$mseed_meta.value.length == 0
+    })
+
+
+    compute_signal_envelope = async (): Promise<void> => {
+        if(this.$envelopes_on.value) {
+            this.$envelopes_on.value = false
+            this.$envelope_items.value = []
+            return
+        }
+
+        if(this.$loading_envelope.value)
+            return
+
+        const files:MSeedMetadata[] = this.props.$mseed_meta.value
+        if(files.length == 0)
+            return
+
+        this.$loading_envelope.value = true
+        try {
+            const computed:EnvelopeHeatmapItem[]|Error =
+                await this.compute_envelope_heatmap_items(
+                    files,
+                    HARDCODED_BIN_LENGTH_SECONDS,
+                )
+            if(computed instanceof Error) {
+                console.error(computed as Error)
+                return
+            }
+
+            this.$envelope_items.value = computed
+            this.$envelopes_on.value = true
+        } finally {
+            this.$loading_envelope.value = false
+        }
+    }
+
+    private async compute_envelope_heatmap_items(
+        files: MSeedMetadata[],
+        bin_length_seconds: number,
+    ): Promise<EnvelopeHeatmapItem[]|Error> {
+        const mseeds:MSEED_FileAndMeta[] = this.props.$mseeds.value
+        const { tstart, x_axis, y_axis, code_to_row } =
+            build_heatmap_axes(files, bin_length_seconds)
+        if(x_axis.length == 0 || y_axis.length == 0)
+            return []
+
+        const n_cols:number = x_axis.length
+        const heatmap_items:EnvelopeHeatmapItem[] = []
+
+        for(let fileindex:number = 0; fileindex < files.length; fileindex++) {
+            // TODO: replace this with some kind of progress feedback
+            //////////////////DEBUG
+            console.log(`DEBUG: ${fileindex} / ${files.length}`)
+            //////////////////DEBUG
+
+            
+            let file_max:number = 0
+
+            const meta:MSeedMetadata = files[fileindex]!
+            const mseed:MSEED_FileAndMeta|undefined = mseeds[fileindex]
+            const file:File|undefined = mseed?.file
+            if(file == null)
+                continue
+
+            const data:Float32Array|Error = await tremorwasm.read_data(file)
+            if(data instanceof Error)
+                return data as Error
+
+            const yindex:number|undefined = code_to_row.get(
+                combine_mseed_codes(meta),
+            )
+            if(yindex == undefined)
+                continue
+
+            const file_items:EnvelopeHeatmapItem[] =
+                compute_file_envelope_items({
+                    data,
+                    meta,
+                    mseed_index: fileindex,
+                    yindex,
+                    tstart,
+                    bin_length_seconds,
+                    n_cols,
+                })
+            for(const item of file_items) {
+                if(item.color > file_max)
+                    file_max = item.color
+            }
+
+            for(const item of file_items) {
+                if(file_max > 0)
+                    item.color = item.color / file_max
+                heatmap_items.push(item)
+            }
+        }
+
+        return heatmap_items
+    }
 }
 
 
@@ -357,6 +496,109 @@ function find_inference(
             return true;
     }
     return false;
+}
+
+/** Describe heatmap axes and lookup mapping. */
+type HeatmapAxes = {
+    tstart: number
+    x_axis: number[]
+    y_axis: string[]
+    code_to_row: Map<string, number>
+}
+
+/** Build heatmap axes and mapping table. */
+function build_heatmap_axes(
+    files: MSeedMetadata[],
+    bin_length_seconds: number,
+): HeatmapAxes {
+    if(files.length == 0) {
+        return {
+            tstart: 0,
+            x_axis: [],
+            y_axis: [],
+            code_to_row: new Map(),
+        }
+    }
+
+    const all_times:number[] = files
+        .map((item:MSeedMetadata) => [item.starttime.getTime(), item.endtime.getTime()])
+        .flat()
+        .sort((a:number,b:number)=>a-b)
+
+    const tmin:number   = all_times[0]! / 1000
+    const tmax:number   = all_times[all_times.length-1]! / 1000
+    const tstart:number = tmin - (tmin % bin_length_seconds)
+    const tend:number   = tmax - (tmax % bin_length_seconds)
+    const x_axis:number[] = range(tstart, tend, bin_length_seconds)
+
+    const y_axis:string[] = Array.from(
+        new Set(files.map((item:MSeedMetadata) => combine_mseed_codes(item)))
+    ).sort().reverse()
+
+    const code_to_row:Map<string, number> = new Map(
+        y_axis.map((code:string, index:number) => [code, index])
+    )
+
+    return { tstart, x_axis, y_axis, code_to_row }
+}
+
+/** Compute envelope items for one file. */
+function compute_file_envelope_items(props: {
+    data: Float32Array
+    meta: MSeedMetadata
+    mseed_index: number
+    yindex: number
+    tstart: number
+    bin_length_seconds: number
+    n_cols: number
+}): EnvelopeHeatmapItem[] {
+    const t0:number = props.meta.starttime.getTime() / 1000
+    const t1:number = props.meta.endtime.getTime() / 1000
+    const index0:number = Math.max(
+        0,
+        Math.floor((t0 - props.tstart) / props.bin_length_seconds),
+    )
+    const index1:number = Math.min(
+        props.n_cols - 1,
+        Math.floor((t1 - props.tstart) / props.bin_length_seconds),
+    )
+
+    const items:EnvelopeHeatmapItem[] = []
+    for(let j:number = index0; j <= index1; j++) {
+        const timestamp:number = j * props.bin_length_seconds + props.tstart
+        if(Math.abs(t1 - timestamp) < HARDCODED_MINIMUM_BIN_LENGTH_SECONDS)
+            continue
+
+        const start_index:number = Math.max(
+            0,
+            Math.floor((timestamp - t0) * props.meta.samplerate),
+        )
+        const end_index:number = Math.min(
+            props.data.length,
+            Math.floor(
+                (timestamp + props.bin_length_seconds - t0) * props.meta.samplerate,
+            ),
+        )
+        if(end_index <= start_index)
+            continue
+
+        let max_value:number = 0
+        for(let index:number = start_index; index < end_index; index++) {
+            const value:number = Math.log1p( Math.abs(props.data[index] ?? 0) )
+            if(value > max_value)
+                max_value = value
+        }
+
+        items.push({
+            x: j,
+            y: props.yindex,
+            color: max_value,
+            mseedindex: props.mseed_index,
+            timestamp,
+        })
+    }
+
+    return items
 }
 
 /** Create stable data/background colors for stations. */

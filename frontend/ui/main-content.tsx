@@ -126,6 +126,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             }}>
                 <MSEED_Heatmap 
                     $mseed_meta = {this.$mseed_meta} 
+                    $mseeds     = {this.props.$mseeds}
                     $inference  = {this.props.$inference}
                     $events     = {this.props.$events}
                     on_click    = {this.on_heatmap_item_select}
