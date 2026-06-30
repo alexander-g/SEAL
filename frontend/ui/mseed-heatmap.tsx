@@ -33,6 +33,7 @@ type HeatmapDataItemWithFile = HeatmapDataItem & {
 }
 
 type EnvelopeHeatmapItem = HeatmapDataItemWithFile & {
+    // override
     color: number
 }
 
@@ -77,7 +78,7 @@ export class MSEED_Heatmap extends preact.Component<{
         >
             <HoverActionContainer
                 $action_label    = {this.$action_label}
-                on_action        = {this.compute_signal_envelope}
+                on_action        = {this.on_compute_signal_envelope}
                 $action_disabled = {this.$action_disabled}
             >
                 <D3Heatmap
@@ -127,7 +128,8 @@ export class MSEED_Heatmap extends preact.Component<{
         return this.$itemized_events.value.map( e => e.time.getTime() / 1000 )
     })
 
-    private $transformed:Readonly<Signal<TransformedHeatmapData>> = signals.computed(() => {
+    /** Heatmap colors and axes, itemized in bins of equal size */
+    $transformed:Readonly<Signal<TransformedHeatmapData>> = signals.computed(() => {
         const files:MSeedMetadata[] = this.props.$mseed_meta.value
         const inference:InferenceEvent[] = this.props.$inference.value
         const transformed:TransformedHeatmapData = this.transform_heatmap_data(
@@ -330,7 +332,7 @@ export class MSEED_Heatmap extends preact.Component<{
     })
 
 
-    compute_signal_envelope = async (): Promise<void> => {
+    on_compute_signal_envelope = async (): Promise<void> => {
         if(this.$envelopes_on.value) {
             this.$envelopes_on.value = false
             this.$envelope_items.value = []
@@ -347,10 +349,7 @@ export class MSEED_Heatmap extends preact.Component<{
         this.$loading_envelope.value = true
         try {
             const computed:EnvelopeHeatmapItem[]|Error =
-                await this.compute_envelope_heatmap_items(
-                    files,
-                    HARDCODED_BIN_LENGTH_SECONDS,
-                )
+                await this.compute_envelope_heatmap_items()
             if(computed instanceof Error) {
                 console.error(computed as Error)
                 return
@@ -363,65 +362,60 @@ export class MSEED_Heatmap extends preact.Component<{
         }
     }
 
-    private async compute_envelope_heatmap_items(
-        files: MSeedMetadata[],
-        bin_length_seconds: number,
-    ): Promise<EnvelopeHeatmapItem[]|Error> {
-        const mseeds:MSEED_FileAndMeta[] = this.props.$mseeds.value
-        const { tstart, x_axis, y_axis, code_to_row } =
-            build_heatmap_axes(files, bin_length_seconds)
-        if(x_axis.length == 0 || y_axis.length == 0)
-            return []
-
-        const n_cols:number = x_axis.length
-        const heatmap_items:EnvelopeHeatmapItem[] = []
-
-        for(let fileindex:number = 0; fileindex < files.length; fileindex++) {
+    async compute_envelope_heatmap_items(): Promise<EnvelopeHeatmapItem[]|Error> {
+        const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
+        const file_indices: Set<number> = 
+            new Set(this.$transformed_files.value.map(item => item.mseedindex))
+        
+        const all_items: EnvelopeHeatmapItem[] = []
+        
+        for(const index of file_indices) {
             this.$loading_envelope_message.value = 
-                `Loading ${fileindex}/${files.length}`
+                `Loading ${index}/${file_indices.size}`
 
-            
-            let file_max:number = 0
+            const mseed: MSEED_FileAndMeta|undefined = mseeds[index]
+            const file:  File|undefined = mseed?.file
+            if(mseed == undefined)
+                continue;
 
-            const meta:MSeedMetadata = files[fileindex]!
-            const mseed:MSEED_FileAndMeta|undefined = mseeds[fileindex]
-            const file:File|undefined = mseed?.file
-            if(file == null)
-                continue
-
-            const data:Float32Array|Error = await tremorwasm.read_data(file)
+            const data:Float32Array|Error = await tremorwasm.read_data(file!)
             if(data instanceof Error)
                 return data as Error
+            
+            const envelope: Float32Array = log1p(compute_envelope_from_signal(data))
 
-            const yindex:number|undefined = code_to_row.get(
-                combine_mseed_codes(meta),
-            )
-            if(yindex == undefined)
-                continue
+            let file_max: number = 0
+            const file_items: EnvelopeHeatmapItem[] = []
+            for(const og_item of this.$transformed.value.items) {
+                if(og_item.mseedindex != index)
+                    continue;
 
-            const file_items:EnvelopeHeatmapItem[] =
-                compute_file_envelope_items({
-                    data,
-                    meta,
-                    mseed_index: fileindex,
-                    yindex,
-                    tstart,
-                    bin_length_seconds,
-                    n_cols,
+                const fs: number = mseed.meta.samplerate
+                const t0: number = mseed.meta.starttime.getTime() / 1000
+                const envelope_slice: Float32Array|null = slice_signal_at_time(
+                    envelope, 
+                    fs, 
+                    og_item.timestamp - t0, 
+                    HARDCODED_BIN_LENGTH_SECONDS
+                )
+                if(envelope_slice == null)
+                    continue;
+
+                const slice_max: number = maximum(envelope_slice)
+                file_max = Math.max(file_max, slice_max)
+
+                file_items.push({
+                    ...og_item,
+                    color: slice_max,
                 })
-            for(const item of file_items) {
-                if(item.color > file_max)
-                    file_max = item.color
             }
 
-            for(const item of file_items) {
-                if(file_max > 0)
-                    item.color = item.color / file_max
-                heatmap_items.push(item)
+            for(const envelope_item of file_items) {
+                envelope_item.color = envelope_item.color / file_max;
+                all_items.push(envelope_item)
             }
         }
-
-        return heatmap_items
+        return all_items;
     }
 }
 
@@ -505,108 +499,58 @@ function find_inference(
     return false;
 }
 
-/** Describe heatmap axes and lookup mapping. */
-type HeatmapAxes = {
-    tstart: number
-    x_axis: number[]
-    y_axis: string[]
-    code_to_row: Map<string, number>
+
+function compute_envelope_from_signal(x:Float32Array): Float32Array {
+    const output: Float32Array = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++) 
+        output[i] = Math.abs(x[i]!)
+    
+    return output;
 }
 
-/** Build heatmap axes and mapping table. */
-function build_heatmap_axes(
-    files: MSeedMetadata[],
-    bin_length_seconds: number,
-): HeatmapAxes {
-    if(files.length == 0) {
-        return {
-            tstart: 0,
-            x_axis: [],
-            y_axis: [],
-            code_to_row: new Map(),
-        }
-    }
+function slice_signal_at_time(
+    signal:         Float32Array, 
+    frequency:      number, 
+    start_seconds:  number, 
+    length_seconds: number
+): Float32Array|null {
+    const end_seconds: number = start_seconds + length_seconds;
+    
+    const index0: number = 
+        Math.min( Math.max(start_seconds * frequency, 0), signal.length )
+    const index1: number = 
+        Math.min( Math.max(end_seconds * frequency, 0), signal.length )
 
-    const all_times:number[] = files
-        .map((item:MSeedMetadata) => [item.starttime.getTime(), item.endtime.getTime()])
-        .flat()
-        .sort((a:number,b:number)=>a-b)
+    if(index1 <= index0)
+        return null
 
-    const tmin:number   = all_times[0]! / 1000
-    const tmax:number   = all_times[all_times.length-1]! / 1000
-    const tstart:number = tmin - (tmin % bin_length_seconds)
-    const tend:number   = tmax - (tmax % bin_length_seconds)
-    const x_axis:number[] = range(tstart, tend, bin_length_seconds)
-
-    const y_axis:string[] = Array.from(
-        new Set(files.map((item:MSeedMetadata) => combine_mseed_codes(item)))
-    ).sort().reverse()
-
-    const code_to_row:Map<string, number> = new Map(
-        y_axis.map((code:string, index:number) => [code, index])
-    )
-
-    return { tstart, x_axis, y_axis, code_to_row }
+    return signal.slice(index0, index1)
 }
 
-/** Compute envelope items for one file. */
-function compute_file_envelope_items(props: {
-    data: Float32Array
-    meta: MSeedMetadata
-    mseed_index: number
-    yindex: number
-    tstart: number
-    bin_length_seconds: number
-    n_cols: number
-}): EnvelopeHeatmapItem[] {
-    const t0:number = props.meta.starttime.getTime() / 1000
-    const t1:number = props.meta.endtime.getTime() / 1000
-    const index0:number = Math.max(
-        0,
-        Math.floor((t0 - props.tstart) / props.bin_length_seconds),
-    )
-    const index1:number = Math.min(
-        props.n_cols - 1,
-        Math.floor((t1 - props.tstart) / props.bin_length_seconds),
-    )
-
-    const items:EnvelopeHeatmapItem[] = []
-    for(let j:number = index0; j <= index1; j++) {
-        const timestamp:number = j * props.bin_length_seconds + props.tstart
-        if(Math.abs(t1 - timestamp) < HARDCODED_MINIMUM_BIN_LENGTH_SECONDS)
-            continue
-
-        const start_index:number = Math.max(
-            0,
-            Math.floor((timestamp - t0) * props.meta.samplerate),
-        )
-        const end_index:number = Math.min(
-            props.data.length,
-            Math.floor(
-                (timestamp + props.bin_length_seconds - t0) * props.meta.samplerate,
-            ),
-        )
-        if(end_index <= start_index)
-            continue
-
-        let max_value:number = 0
-        for(let index:number = start_index; index < end_index; index++) {
-            const value:number = Math.log1p( Math.abs(props.data[index] ?? 0) )
-            if(value > max_value)
-                max_value = value
-        }
-
-        items.push({
-            x: j,
-            y: props.yindex,
-            color: max_value,
-            mseedindex: props.mseed_index,
-            timestamp,
-        })
-    }
-
-    return items
+function maximum(x: Float32Array): number {
+    let max: number = -Infinity
+    for(const i of x)
+        max = Math.max(max, i)
+    return max;
 }
+
+function mean(x: Float32Array): number {
+    let sum: number = 0
+    for(const i of x)
+        sum = sum + i;
+    const mean: number = sum / x.length
+    return mean
+}
+
+function log1p(x: Float32Array): Float32Array {
+    const output: Float32Array = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++) 
+        output[i] = Math.log1p(x[i]!)
+    
+    return output;
+}
+
+
 
 /** Create stable data/background colors for stations. */
 function create_station_colors(codes:string[]): Record<string, RGB> {
