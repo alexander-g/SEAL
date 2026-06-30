@@ -13,6 +13,7 @@ import {
     type DataItem as HeatmapDataItem,
     type RGB,
 } from "../ui/d3-heatmap.tsx"
+import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
 import { range } from 'd3';
 
@@ -69,24 +70,31 @@ export class MSEED_Heatmap extends preact.Component<{
     $highlighted_station?: Signal<Station|null>
 }> {
     render(): JSX.Element {
-        return <HoverActionContainer
-            $action_label    = {this.$action_label}
-            on_action        = {this.compute_signal_envelope}
-            $action_disabled = {this.$action_disabled}
+        return <>
+        <ContainerWithOverlay
+            $is_loading     = {this.$loading_envelope}
+            loading_message = {this.$loading_envelope_message}
         >
-            <D3Heatmap
-                $data    = {this.$transformed_files}
-                $x_axis  = {this.$x_axis}
-                $y_axis  = {this.$y_axis}
-                $y_axis_tick_values = {this.$y_axis_tick_values}
-                $x_axis_markers = { this.$itemized_event_timestamps }
-                $y_axis_markers = { this.$highlighted_rows }
-                on_click = {this.on_heatmap_select}
-                on_hover = {this.on_heatmap_hover}
-                y_axis_label_formatter = {this.format_station_axis_label}
-                colormap = 'magma'
-            />
-        </HoverActionContainer>
+            <HoverActionContainer
+                $action_label    = {this.$action_label}
+                on_action        = {this.compute_signal_envelope}
+                $action_disabled = {this.$action_disabled}
+            >
+                <D3Heatmap
+                    $data    = {this.$transformed_files}
+                    $x_axis  = {this.$x_axis}
+                    $y_axis  = {this.$y_axis}
+                    $y_axis_tick_values = {this.$y_axis_tick_values}
+                    $x_axis_markers = { this.$itemized_event_timestamps }
+                    $y_axis_markers = { this.$highlighted_rows }
+                    on_click = {this.on_heatmap_select}
+                    on_hover = {this.on_heatmap_hover}
+                    y_axis_label_formatter = {this.format_station_axis_label}
+                    colormap = 'magma'
+                />
+            </HoverActionContainer>
+        </ContainerWithOverlay>
+        </>
     }
 
     /** $events, aligned to bins/items */
@@ -306,6 +314,7 @@ export class MSEED_Heatmap extends preact.Component<{
     $envelopes_on: Signal<boolean> = new Signal(false)
     $envelope_items: Signal<EnvelopeHeatmapItem[]> = new Signal([])
     $loading_envelope: Signal<boolean> = new Signal(false)
+    $loading_envelope_message: Signal<string> = new Signal('Loading...')
 
     $action_label: Readonly<Signal<string>> = signals.computed(() => {
         if(this.$loading_envelope.value)
@@ -368,10 +377,8 @@ export class MSEED_Heatmap extends preact.Component<{
         const heatmap_items:EnvelopeHeatmapItem[] = []
 
         for(let fileindex:number = 0; fileindex < files.length; fileindex++) {
-            // TODO: replace this with some kind of progress feedback
-            //////////////////DEBUG
-            console.log(`DEBUG: ${fileindex} / ${files.length}`)
-            //////////////////DEBUG
+            this.$loading_envelope_message.value = 
+                `Loading ${fileindex}/${files.length}`
 
             
             let file_max:number = 0

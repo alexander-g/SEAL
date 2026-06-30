@@ -62,8 +62,8 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Spectrogram',
                 element: 
                 <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
+                    $is_loading = {this.$plots_loading}
+                    uninitialized_message = 'Select a MSEED channel and time to plot here.'
                 >
                     <D3Heatmap
                         $data   = {this.$spectrogram_heatmap_data}
@@ -83,8 +83,8 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Modulation Power Spectrum',
                 element:
                 <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
+                    $is_loading = {this.$plots_loading}
+                    uninitialized_message = 'Select a MSEED channel and time to plot here.'
                 >
                     <D3Heatmap
                         $data   = {this.$mps_heatmap_data}

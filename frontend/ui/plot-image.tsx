@@ -14,7 +14,7 @@ export class PlotImage extends preact.Component<PlotImageProps> {
         return <> 
         <ContainerWithOverlay
             $is_loading     = {this.props.$is_loading}
-            loading_message = 'Select a MSEED channel and time to plot here.'
+            uninitialized_message = 'Select a MSEED channel and time to plot here.'
         >
             <img 
                 ref   = {this.img_ref} 
@@ -39,16 +39,22 @@ export class PlotImage extends preact.Component<PlotImageProps> {
 
 type ContainerWithOverlayProps = {
     $is_loading: Readonly<Signal<boolean>>;
-    
-    /** Which message to show when `$is_loading` is true */
-    loading_message: string;
+
+    /** Which message to show when `$is_loading` is `true`. 
+     *  Default: `"Loading..."` */
+    loading_message?: string|Readonly<Signal<string>>;
+
+    /** Message to show until `$is_loading` becomes `true`. 
+     *  Won't show if not provided. */
+    uninitialized_message?: string;
 
     children: preact.ComponentChildren;
 }
 
 
 export class ContainerWithOverlay extends preact.Component<ContainerWithOverlayProps> {
-    public $initialized:Signal<boolean> = new Signal(false)
+    $initialized:Signal<boolean> = 
+        new Signal(this.props.uninitialized_message == undefined)
 
     render(): JSX.Element {
         return <div class='container' style={{position:'relative', width:'100%'}}>
@@ -60,14 +66,15 @@ export class ContainerWithOverlay extends preact.Component<ContainerWithOverlayP
         </div>
     }
 
-    $overlay_on:Readonly<Signal<boolean>> = signals.computed(
-        () => !this.$initialized.value || this.props.$is_loading.value
+    $overlay_on:Readonly<Signal<boolean>> = signals.computed( () => 
+        (!this.$initialized.value) 
+        || this.props.$is_loading.value
     )
 
     $overlay_message: Readonly<Signal<string>> = signals.computed(
         () => this.props.$is_loading.value
-            ? 'Loading...'
-            : this.props.loading_message
+            ? resolve_string_or_string_signal(this.props.loading_message ?? 'Loading...')
+            : this.props.uninitialized_message ?? ''
     )
 
     #_1 = this.props.$is_loading.subscribe( (value:boolean) => {
@@ -77,3 +84,9 @@ export class ContainerWithOverlay extends preact.Component<ContainerWithOverlayP
 }
 
 
+function resolve_string_or_string_signal(x:string|Readonly<Signal<string>>): string {
+    if(typeof x == 'string')
+        return x
+    else
+        return x.value;
+}
