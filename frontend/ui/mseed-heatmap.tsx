@@ -6,7 +6,7 @@ import type { QuakeEvent }        from "../lib/quakeml.ts";
 import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
 import { tremorwasm }             from "../lib/file-input.ts";
 import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
-import { HoverActionContainer }   from "../ui/hover-action-container.tsx"
+import { SettingsContainer, SettingsEntry } from "../ui/component-settings.tsx"
 import { type Station }           from "../lib/station-xml.ts";
 import {
     type HoverCallbackPosition, 
@@ -69,10 +69,8 @@ export class MSEED_Heatmap extends preact.Component<{
     $highlighted_station?: Signal<Station|null>
 }> {
     render(): JSX.Element {
-        return <HoverActionContainer
-            $action_label    = {this.$action_label}
-            on_action        = {this.compute_signal_envelope}
-            $action_disabled = {this.$action_disabled}
+        return <SettingsContainer
+            settings_entries = {this.settings.to_component_settings_entries()}
         >
             <D3Heatmap
                 $data    = {this.$transformed_files}
@@ -86,8 +84,12 @@ export class MSEED_Heatmap extends preact.Component<{
                 y_axis_label_formatter = {this.format_station_axis_label}
                 colormap = 'magma'
             />
-        </HoverActionContainer>
+        </SettingsContainer>
     }
+
+    /** Parameters modified by the user. */
+    settings: MSEED_HeatmapSettings = new MSEED_HeatmapSettings()
+
 
     /** $events, aligned to bins/items */
     $itemized_events: Readonly<Signal<ItemizedEvent[]>> = signals.computed(() => {
@@ -309,16 +311,21 @@ export class MSEED_Heatmap extends preact.Component<{
 
     $action_label: Readonly<Signal<string>> = signals.computed(() => {
         if(this.$loading_envelope.value)
-            return 'Computing envelope heatmap...'
-        if(this.$envelopes_on.value)
-            return 'Hide envelope heatmap'
-        return 'Envelope heatmap'
+            return 'Heatmap settings (loading...)'
+        return 'Heatmap settings'
     })
 
 
+    // TODO
     $action_disabled: Readonly<Signal<boolean>> = signals.computed(() => {
-        return this.$loading_envelope.value || this.props.$mseed_meta.value.length == 0
+        return this.$loading_envelope.value
     })
+
+
+    #_1 = this.settings.$envelope_enabled.subscribe( (enabled:boolean) => {
+        if(enabled)
+            this.compute_signal_envelope()
+    } )
 
 
     compute_signal_envelope = async (): Promise<void> => {
@@ -671,6 +678,7 @@ function to_rgb_channel(channel:number): number {
     return Math.max(0, Math.min(255, Math.round(channel * 255)))
 }
 
+
 /** Convert a string into a stable 0..1 value. */
 function hash_string_to_unit_interval(value:string): number {
     let hash:number = 0
@@ -679,3 +687,36 @@ function hash_string_to_unit_interval(value:string): number {
     const normalized:number = Math.abs(hash % 10000) / 10000
     return normalized
 }
+
+
+
+export class MSEED_HeatmapSettings {
+    /** Heatmap colors represent envelope magnitude (takes time to compute) */
+    $envelope_enabled = new Signal<boolean>(false);
+
+    /** Lower end of the bandpass filter to apply before envelope computation */
+    $envelope_bandpass_fmin = new Signal<number>(0.0);
+
+    /** Upper end of the bandpass filter to apply before envelope computation */
+    $envelope_bandpass_fmax = new Signal<number>(99999);
+
+
+    to_component_settings_entries(): SettingsEntry[] {
+        return [
+            {type:'boolean', label:'Show envelope', $signal: this.$envelope_enabled},
+            {
+                type:    'number',  
+                label:   'Envelope bandpass lower bound (Hz)', 
+                step:    1, 
+                $signal: this.$envelope_bandpass_fmin
+            },
+            {
+                type:    'number',  
+                label:   'Envelope bandpass upper bound (Hz)', 
+                step:    1, 
+                $signal: this.$envelope_bandpass_fmax
+            },
+        ]
+    }
+}
+
