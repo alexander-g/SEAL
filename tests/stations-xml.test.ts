@@ -18,7 +18,13 @@ Deno.test('parse_stationxml', async () => {
     const output0:Station[]|Error = await parse_stationxml_file(f)
     assert(!(output0 instanceof Error))
 
-    assert(output0.length == 23 )
+    assert(output0.length == 9, `${output0.length}` )
+
+    const channels = output0.map( station => station.channels ).filter(Boolean).flat()
+    assert(channels.length == 4)
+
+    const responses = channels.map( c => c?.response ).filter(Boolean).flat()
+    assert(responses.length == 2)
 })
 
 

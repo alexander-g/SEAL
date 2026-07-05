@@ -36,6 +36,12 @@
       <Site>
         <Name></Name>
       </Site>
+      <Channel code="DH1" locationCode="00">
+        <SampleRate>250</SampleRate>
+      </Channel>
+      <Channel code="DH2" locationCode="00">
+        <SampleRate>250</SampleRate>
+      </Channel>
     </Station>
     <Station code="PA01">
       <Latitude unit="DEGREES">48.653</Latitude>
@@ -68,122 +74,44 @@
       <Site>
         <Name></Name>
       </Site>
+      <Channel code="DH1" locationCode="00">
+        <SampleRate>250</SampleRate>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>3.6148183848e+09</Value>
+            <Frequency>50</Frequency>
+            <InputUnits>
+              <Name>m/s</Name>
+              <Description>meter per second (velocity)</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>count</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+        </Response>
+      </Channel>
+      <Channel code="DH2" locationCode="00">
+        <SampleRate>250</SampleRate>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>3.6148183848e+09</Value>
+            <Frequency>50</Frequency>
+            <InputUnits>
+              <Name>m/s</Name>
+              <Description>meter per second (velocity)</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>count</Name>
+              <Description>digital counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+        </Response>
+      </Channel>
     </Station>
     <Station code="BFSB">
       <Latitude unit="DEGREES">48.834</Latitude>
       <Longitude unit="DEGREES">-125.136</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="PTRF">
-      <Latitude unit="DEGREES">48.544</Latitude>
-      <Longitude unit="DEGREES">-124.413</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="PGC">
-      <Latitude unit="DEGREES">48.65</Latitude>
-      <Longitude unit="DEGREES">-123.452</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="CLRS">
-      <Latitude unit="DEGREES">48.82</Latitude>
-      <Longitude unit="DEGREES">-124.131</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="BTB">
-      <Latitude unit="DEGREES">49.469</Latitude>
-      <Longitude unit="DEGREES">-125.523</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="NLLB">
-      <Latitude unit="DEGREES">49.227</Latitude>
-      <Longitude unit="DEGREES">-123.988</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="SHB">
-      <Latitude unit="DEGREES">49.599</Latitude>
-      <Longitude unit="DEGREES">-123.877</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="VDB">
-      <Latitude unit="DEGREES">49.026</Latitude>
-      <Longitude unit="DEGREES">-122.103</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="PFB">
-      <Latitude unit="DEGREES">48.575</Latitude>
-      <Longitude unit="DEGREES">-124.454</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="VIC">
-      <Latitude unit="DEGREES">48.52</Latitude>
-      <Longitude unit="DEGREES">-123.42</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="BIB">
-      <Latitude unit="DEGREES">49.41</Latitude>
-      <Longitude unit="DEGREES">-123.311</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="VGZ">
-      <Latitude unit="DEGREES">48.413</Latitude>
-      <Longitude unit="DEGREES">-123.325</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="MWAB">
-      <Latitude unit="DEGREES">49.741</Latitude>
-      <Longitude unit="DEGREES">-125.303</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="TXB">
-      <Latitude unit="DEGREES">49.698</Latitude>
-      <Longitude unit="DEGREES">-124.438</Longitude>
-      <Elevation unit="METERS">0.0</Elevation>
-      <Site>
-        <Name></Name>
-      </Site>
-    </Station>
-    <Station code="GOBB">
-      <Latitude unit="DEGREES">48.949</Latitude>
-      <Longitude unit="DEGREES">-123.51</Longitude>
       <Elevation unit="METERS">0.0</Elevation>
       <Site>
         <Name></Name>
