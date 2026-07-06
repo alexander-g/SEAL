@@ -7,7 +7,7 @@ import type {
     SVGPlotDimensions,
     RowsCols,
 } from './d3-heatmap.tsx'
-import { strftime_ISO8601_datetime } from "../lib/util.ts";
+import { strftime_ISO8601_datetime, strftime_ISO8601_time } from "../lib/util.ts";
 
 
 
@@ -84,7 +84,7 @@ export class Axes extends preact.Component<{
             )
 
 
-        const step_size_x:number = Math.floor((zx.invert(w) - zx.invert(0)) / 10)
+        const step_size_x:number = Math.floor((zx.invert(w) - zx.invert(0)) / 5)
 
         // index of first data column at plot position 0 (clipped)
         const first_col_in_bounds:number = Math.max(zx.invert(0), 0)
@@ -135,7 +135,16 @@ export class Axes extends preact.Component<{
         if(formatter != undefined)
             return formatter(value)
 
-        return strftime_ISO8601_datetime(new Date( value * 1000 ) )
+        const as_date = new Date( value * 1000 )
+        if(index == 0)
+            return strftime_ISO8601_datetime(as_date)
+        else {
+            const previous_date = new Date( x_axis[index-1]! * 1000 )
+            if( same_day(as_date, previous_date) )
+                return strftime_ISO8601_time(as_date)
+            else
+                return strftime_ISO8601_datetime(as_date)
+        }
     }
 
     #format_y_axis_value(y_axis:string[], value:number): string {
@@ -158,4 +167,13 @@ export class Axes extends preact.Component<{
 
         return d3.ticks(0, rows, 5)
     }
+}
+
+
+function same_day(a:Date, b:Date): boolean {
+    return (
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+    )
 }
