@@ -14,6 +14,7 @@
     "npm:@types/node@*": "24.2.0",
     "npm:d3-tile@1.0.0": "1.0.0",
     "npm:d3@7.9.0": "7.9.0_d3-selection@3.0.0",
+    "npm:fft.js@4.0.4": "4.0.4",
     "npm:preact-render-to-string@6.6.5": "6.6.5_preact@10.28.0",
     "npm:preact@10.28.0": "10.28.0",
     "npm:pyodide@0.29.3": "0.29.3"
@@ -440,6 +441,9 @@
         "robust-predicates"
       ]
     },
+    "fft.js@4.0.4": {
+      "integrity": "sha512-f9c00hphOgeQTlDyavwTtu6RiK8AIFjD6+jvXkNkpeQ7rirK3uFWVpalkoS4LAwbdX7mfZ8aoBfFVQX1Re/8aw=="
+    },
     "iconv-lite@0.6.3": {
       "integrity": "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==",
       "dependencies": [
@@ -507,6 +511,7 @@
       "npm:@types/d3@7.4.3",
       "npm:d3-tile@1.0.0",
       "npm:d3@7.9.0",
+      "npm:fft.js@4.0.4",
       "npm:preact-render-to-string@6.6.5",
       "npm:preact@10.28.0",
       "npm:pyodide@0.29.3"
