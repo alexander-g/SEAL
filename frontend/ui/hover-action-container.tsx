@@ -3,8 +3,8 @@ import { preact, Signal, JSX } from '../dep.ts'
 
 type HoverActionContainerProps = {
     children:          preact.ComponentChildren
-    $action_label:     Readonly<Signal<string>>
-    on_action:         () => void
+    label:             string
+    on_action?:        () => void
     $action_visible?:  Readonly<Signal<boolean>>
     $action_disabled?: Readonly<Signal<boolean>>
     $force_visible?:   Readonly<Signal<boolean>>
@@ -19,15 +19,15 @@ export class HoverActionContainer extends preact.Component<HoverActionContainerP
         const force_visible: boolean =
             this.props.$force_visible?.value ?? false
         const show_action: boolean =
-            action_visible && (this.$hovered.value || force_visible)
+            action_visible
+            && (this.$hovered.value || force_visible /* || settings_open */)
         const action_disabled: boolean =
             this.props.$action_disabled?.value ?? false
-        const action_label: string = this.props.$action_label.value
 
         const button_style: preact.CSSProperties = {
             position:      'absolute',
-            top:           '8px',
-            left:          '8px',
+            top:           '2px',
+            left:          '2px',
             padding:       '6px 10px',
             borderRadius:  '6px',
             border:        '1px solid rgba(0,0,0,0.25)',
@@ -43,6 +43,8 @@ export class HoverActionContainer extends preact.Component<HoverActionContainerP
             zIndex:        5,
         }
 
+        
+
         return <div
             style = {{ position: 'relative', width: '100%', height: '100%' }}
             onMouseEnter = {this.on_mouse_enter}
@@ -55,12 +57,13 @@ export class HoverActionContainer extends preact.Component<HoverActionContainerP
                 disabled = {action_disabled}
                 onClick  = {this.on_action}
             >
-                {action_label}
+                {this.props.label}
             </button>
         </div>
     }
 
-
+    /** Flag indicating if the mouse is hovering above the child component 
+     *  and thus the action button is shown. */
     $hovered: Signal<boolean> = new Signal(false)
 
     on_mouse_enter = (): void => {
@@ -76,6 +79,7 @@ export class HoverActionContainer extends preact.Component<HoverActionContainerP
     on_action = (): void => {
         if(this.props.$action_disabled?.value)
             return
-        this.props.on_action()
+
+        this.props.on_action?.()
     }
 }

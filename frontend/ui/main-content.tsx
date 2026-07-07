@@ -5,6 +5,8 @@ import { D3Map }         from './d3-map.tsx'
 import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
 import { MSEED_Heatmap } from './mseed-heatmap.tsx'
 import { ContainerWithOverlay } from './plot-image.tsx'
+// import { HoverActionContainer } from './hover-action-container.tsx'
+import { SettingsContainer } from "./component-settings.tsx"
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
@@ -52,54 +54,64 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'plot',
                 label: 'Signal',
-                element: <D3SignalPlot
-                    $plot_data  = {this.$signal_plot_data}
-                    $is_loading = {this.$plots_loading}
-                />,
+                element: <SettingsContainer
+                    settings_entries = {[]}
+                >
+                    <D3SignalPlot
+                        $plot_data  = {this.$signal_plot_data}
+                        $is_loading = {this.$plots_loading}
+                    />
+                </SettingsContainer>,
             },
             {
                 key: 'spectrogram',
                 label: 'Spectrogram',
-                element: 
-                <ContainerWithOverlay
-                    $is_loading = {this.$plots_loading}
-                    uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                element: <SettingsContainer
+                    settings_entries = {[]}
                 >
-                    <D3Heatmap
-                        $data   = {this.$spectrogram_heatmap_data}
-                        $x_axis = {this.$spectrogram_time_axis}
-                        $y_axis = {this.$spectrogram_frequency_axis}
-                        on_click = {this.on_spectrogram_click}
-                        $title   = {this.$spectrogram_title}
-                        y_axis_label = 'Frequency (Hz)'
-                        x_axis_label = 'Time (UTC)'
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                    />
-                </ContainerWithOverlay>,
+                    <ContainerWithOverlay
+                        $is_loading     = {this.$plots_loading}
+                        loading_message = 'Select a MSEED channel and time to plot here.'
+                    >
+                        <D3Heatmap
+                            $data   = {this.$spectrogram_heatmap_data}
+                            $x_axis = {this.$spectrogram_time_axis}
+                            $y_axis = {this.$spectrogram_frequency_axis}
+                            on_click = {this.on_spectrogram_click}
+                            $title   = {this.$spectrogram_title}
+                            y_axis_label = 'Frequency (Hz)'
+                            x_axis_label = 'Time (UTC)'
+                            enable_hover = {false}
+                            enable_zoom  = {false}
+                        />
+                    </ContainerWithOverlay>
+                </SettingsContainer>,
             },
             {
                 key: 'mps',
                 label: 'Modulation Power Spectrum',
-                element:
-                <ContainerWithOverlay
-                    $is_loading = {this.$plots_loading}
-                    uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                element: <SettingsContainer
+                    settings_entries = {[]}
                 >
-                    <D3Heatmap
-                        $data   = {this.$mps_heatmap_data}
-                        $x_axis = {this.$mps_temporal_axis}
-                        $y_axis = {this.$mps_spectral_axis}
-                        on_click = {this.on_mps_click}
-                        $title   = {this.$mps_title}
-                        y_axis_label = 'Spectral Modulation (1/Hz)'
-                        x_axis_label = 'Temporal Modulation (Hz)'
-                        x_axis_label_formatter = {this.format_mps_axis_value}
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                        colormap     = 'magma'
-                    />
-                </ContainerWithOverlay>,
+                    <ContainerWithOverlay
+                        $is_loading     = {this.$plots_loading}
+                        loading_message = 'Select a MSEED channel and time to plot here.'
+                    >
+                        <D3Heatmap
+                            $data   = {this.$mps_heatmap_data}
+                            $x_axis = {this.$mps_temporal_axis}
+                            $y_axis = {this.$mps_spectral_axis}
+                            on_click = {this.on_mps_click}
+                            $title   = {this.$mps_title}
+                            y_axis_label = 'Spectral Modulation (1/Hz)'
+                            x_axis_label = 'Temporal Modulation (Hz)'
+                            x_axis_label_formatter = {this.format_mps_axis_value}
+                            enable_hover = {false}
+                            enable_zoom  = {false}
+                            colormap     = 'magma'
+                        />
+                    </ContainerWithOverlay>
+                </SettingsContainer>,
             },
             {
                 key: 'map',
