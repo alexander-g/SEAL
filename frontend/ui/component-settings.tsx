@@ -8,6 +8,9 @@ type SettingsContainerProps = {
     children: preact.ComponentChildren;
 
     settings_entries: SettingsEntry[];
+
+    /** Callback when user clicked on the `Apply` button */
+    on_apply?: () => void;
 }
 
 
@@ -37,8 +40,10 @@ export class SettingsContainer extends preact.Component<SettingsContainerProps> 
     /** `true` when the settings overlay is shown */
     $settings_open: Signal<boolean> = new Signal(false)
 
-    close_settings = (): void => {
+    close_settings = (ok:boolean): void => {
         this.$settings_open.value = false
+        if(ok)
+            this.props.on_apply?.()
     }
 
     show_settings = () => {
@@ -54,12 +59,13 @@ export class SettingsContainer extends preact.Component<SettingsContainerProps> 
 type SettingsOverlayProps = {
     settings_entries: SettingsEntry[]
 
-    /** Callback when user wants to close the settings overlay */
-    on_close: () => void;
+    /** Callback when user clicks on `Apply` or `Cancel` */
+    on_close: (ok:boolean) => void;
 }
 
 /** Overlay with widgets on top of a plot component */
 export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
+
     render(): JSX.Element {
         const overlay_css: preact.CSSProperties = {
             position:        'absolute',
@@ -76,30 +82,37 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
             zIndex:          8,
         }
 
-        const close_css: preact.CSSProperties = {
-            position:      'absolute',
-            top:           '8px',
-            right:         '8px',
-            width:         '24px',
-            height:        '24px',
-            borderRadius:  '4px',
-            border:        '1px solid rgba(0,0,0,0.18)',
-            background:    '#ffffff',
-            color:         '#2a2a2a',
-            cursor:        'pointer',
-            fontSize:      '16px',
-            lineHeight:    '20px',
-            padding:       0,
-        }
-
         const settingspanel_css: preact.CSSProperties = {
             display:       'flex',
             flexDirection: 'column',
             gap:           '10px',
-            paddingRight:  '28px',
+            width:         '100%',
+            maxWidth:      '500px',
             fontFamily:    'sans-serif',
             fontSize:      '12px',
             color:         '#20262d',
+        }
+
+        const actions_css: preact.CSSProperties = {
+            display:        'flex',
+            justifyContent: 'flex-end',
+            gap:            '8px',
+            marginTop:      '8px',
+        }
+
+        const button_css: preact.CSSProperties = {
+            border:       '1px solid #b9c5cf',
+            borderRadius: '4px',
+            background:   '#ffffff',
+            color:        '#20262d',
+            padding:      '4px 10px',
+            fontSize:     '12px',
+            cursor:       'pointer',
+        }
+
+        const apply_button_css: preact.CSSProperties = {
+            ...button_css,
+            background: '#e8f2fa',
         }
 
         const title_css: preact.CSSProperties = {
@@ -111,38 +124,72 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
         }
 
         const entry_components: JSX.Element[] = []
-        for(const entry of this.props.settings_entries) {
+        for(const [entry_index, entry] of this.props.settings_entries.entries()) {
             if(entry.type == 'boolean')
                 entry_components.push( 
-                    <BooleanSettingsEntryComponent {...entry} /> 
+                    <BooleanSettingsEntryComponent
+                        key       = {entry_index}
+                        ref       = {this.entries_refs[entry_index]}
+                        {...entry}
+                    /> 
                 )
             else if(entry.type == 'number')
                 entry_components.push(
-                    <NumberSettingsEntryComponent {...entry} />
+                    <NumberSettingsEntryComponent
+                        key       = {entry_index}
+                        ref       = {this.entries_refs[entry_index]}
+                        {...entry}
+                    />
                 )
         }
 
         return  <>
         <div style = {overlay_css}>
-            <button
-                type    = 'button'
-                style   = {close_css}
-                onClick = {this.props.on_close}
-                aria-label = 'Close settings'
-            >
-                ×
-            </button>
             <div style={settingspanel_css}>
                 <div style={title_css}>
                     Settings
                 </div>
 
                 { entry_components }
+
+                <div style={actions_css}>
+                    <button
+                        type    = 'button'
+                        style   = {button_css}
+                        onClick = {() => this.props.on_close(false)}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type    = 'button'
+                        style   = {apply_button_css}
+                        onClick = {this.on_apply}
+                    >
+                        Apply
+                    </button>
+                </div>
             </div>
         </div>
         </>
     }
+
+
+    entries_refs: preact.RefObject<SettingsEntryComponent>[] = 
+        this.props.settings_entries.map( () => preact.createRef() )
+
+    private on_apply = (): void => {
+        for(const [entry_index, entry] of this.props.settings_entries.entries()) {
+            const next_value: SettingsValue|undefined = 
+                this.entries_refs[entry_index]?.current?.draft_value
+            entry.$signal.value = next_value as never;
+        }
+        this.props.on_close(true)
+    }
 }
+
+
+
+
 
 
 type BooleanSettingsEntry = {
@@ -160,48 +207,66 @@ type NumberSettingsEntry = {
 
 export type SettingsEntry = BooleanSettingsEntry | NumberSettingsEntry;
 
+type SettingsValue = SettingsEntry['$signal']['value']
 
 
 
 
-function BooleanSettingsEntryComponent(props:BooleanSettingsEntry): JSX.Element {
-    return <label style={settings_row_css}>
-        <span>{props.label}</span>
-        <input
-            type     = 'checkbox'
-            checked  = {props.$signal}
-            onChange = {
-                (event:preact.TargetedEvent<HTMLInputElement>) =>
-                    props.$signal.value = (event.target as HTMLInputElement).checked
-            }
-        />
-    </label>
-}
+type SettingsEntryComponent = NumberSettingsEntryComponent | BooleanSettingsEntryComponent
 
-function NumberSettingsEntryComponent(props:NumberSettingsEntry): JSX.Element {
-    const input_css: preact.CSSProperties = {
-        width:        '90px',
-        border:       '1px solid #b9c5cf',
-        borderRadius: '4px',
-        padding:      '2px 6px',
-        fontSize:     '12px',
+
+
+
+class BooleanSettingsEntryComponent extends preact.Component<BooleanSettingsEntry> {
+    public draft_value: boolean = this.props.$signal.value;
+    
+    render(): JSX.Element {
+        return <label style={settings_row_css}>
+            <span>{this.props.label}</span>
+            <input
+                type     = 'checkbox'
+                checked  = {this.draft_value}
+                onChange = {
+                    (event:preact.TargetedEvent<HTMLInputElement>) =>
+                        this.draft_value = 
+                            (event.target as HTMLInputElement).checked
+                }
+            />
+        </label>
     }
-
-    return <label style={settings_row_css}>
-        <span>{props.label}</span>
-        <input
-            type    = 'number'
-            step    = {props.step}
-            value   = {props.$signal}
-            style   = {input_css}
-            onChange = { 
-                (event:preact.TargetedEvent<HTMLInputElement>) =>
-                    props.$signal.value = 
-                        Number( (event.target as HTMLInputElement).value )
-             }
-        />
-    </label>
 }
+
+class NumberSettingsEntryComponent extends preact.Component<NumberSettingsEntry>{
+    public draft_value: number = this.props.$signal.value;
+
+    render(): JSX.Element {
+        const input_css: preact.CSSProperties = {
+            width:        '90px',
+            border:       '1px solid #b9c5cf',
+            borderRadius: '4px',
+            padding:      '2px 6px',
+            fontSize:     '12px',
+        }
+
+        return <label style={settings_row_css}>
+            <span>{this.props.label}</span>
+            <input
+                type    = 'number'
+                step    = {this.props.step}
+                value   = {this.draft_value}
+                style   = {input_css}
+                onChange = { 
+                    (event:preact.TargetedEvent<HTMLInputElement>) =>
+                        this.draft_value = 
+                            Number((event.target as HTMLInputElement).value)
+                 }
+            />
+        </label>
+    }
+} 
+
+
+
 
 const settings_row_css: preact.CSSProperties = {
     display:             'grid',
@@ -209,5 +274,3 @@ const settings_row_css: preact.CSSProperties = {
     alignItems:          'center',
     gap:                 '12px',
 }
-
-

@@ -5,6 +5,8 @@ import type { MSeedMetadata }     from "../lib/mseed-parsing.ts";
 import type { QuakeEvent }        from "../lib/quakeml.ts";
 import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
 import { tremorwasm }             from "../lib/file-input.ts";
+import * as signalprocessing      from "../lib/signal-processing.ts"
+
 import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
 import { SettingsContainer, SettingsEntry } from "../ui/component-settings.tsx"
 import { type Station }           from "../lib/station-xml.ts";
@@ -13,6 +15,7 @@ import {
     type DataItem as HeatmapDataItem,
     type RGB,
 } from "../ui/d3-heatmap.tsx"
+import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
 import { range } from 'd3';
 
@@ -70,22 +73,30 @@ export class MSEED_Heatmap extends preact.Component<{
     $highlighted_station?: Signal<Station|null>
 }> {
     render(): JSX.Element {
-        return <SettingsContainer
-            settings_entries = {this.settings.to_component_settings_entries()}
+        return <>
+        <ContainerWithOverlay
+            $is_loading     = {this.$loading_envelope}
+            loading_message = {this.$loading_envelope_message}
         >
-            <D3Heatmap
-                $data    = {this.$transformed_files}
-                $x_axis  = {this.$x_axis}
-                $y_axis  = {this.$y_axis}
-                $y_axis_tick_values = {this.$y_axis_tick_values}
-                $x_axis_markers = { this.$itemized_event_timestamps }
-                $y_axis_markers = { this.$highlighted_rows }
-                on_click = {this.on_heatmap_select}
-                on_hover = {this.on_heatmap_hover}
-                y_axis_label_formatter = {this.format_station_axis_label}
-                colormap = 'magma'
-            />
-        </SettingsContainer>
+            <SettingsContainer
+                settings_entries = {this.settings.to_component_settings_entries()}
+                on_apply         = {this.on_new_settings}
+            >
+                <D3Heatmap
+                    $data    = {this.$transformed_files}
+                    $x_axis  = {this.$x_axis}
+                    $y_axis  = {this.$y_axis}
+                    $y_axis_tick_values = {this.$y_axis_tick_values}
+                    $x_axis_markers = { this.$itemized_event_timestamps }
+                    $y_axis_markers = { this.$highlighted_rows }
+                    on_click = {this.on_heatmap_select}
+                    on_hover = {this.on_heatmap_hover}
+                    y_axis_label_formatter = {this.format_station_axis_label}
+                    colormap = 'magma'
+                />
+            </SettingsContainer>
+        </ContainerWithOverlay>
+        </>
     }
 
     /** Parameters modified by the user. */
@@ -325,19 +336,19 @@ export class MSEED_Heatmap extends preact.Component<{
     })
 
 
-    #_1 = this.settings.$envelope_enabled.subscribe( (enabled:boolean) => {
-        if(enabled)
-            this.compute_signal_envelope()
-    } )
 
-
-    compute_signal_envelope = async (): Promise<void> => {
-        if(this.$envelopes_on.value) {
+    on_new_settings = () => {
+        if(!this.settings.$envelope_enabled.value) {
             this.$envelopes_on.value = false
             this.$envelope_items.value = []
             return
         }
 
+        this.compute_signal_envelope()
+    }
+
+
+    compute_signal_envelope = async (): Promise<void> => {
         if(this.$loading_envelope.value)
             return
 
@@ -366,8 +377,10 @@ export class MSEED_Heatmap extends preact.Component<{
         const file_indices: Set<number> = 
             new Set(this.$transformed_files.value.map(item => item.mseedindex))
         
-        const all_items: EnvelopeHeatmapItem[] = []
+        const f_min: number = this.settings.$envelope_bandpass_fmin.value
+        const f_max: number = this.settings.$envelope_bandpass_fmax.value
         
+        const all_items: EnvelopeHeatmapItem[] = []
         for(const index of file_indices) {
             this.$loading_envelope_message.value = 
                 `Loading ${index}/${file_indices.size}`
@@ -377,10 +390,13 @@ export class MSEED_Heatmap extends preact.Component<{
             if(mseed == undefined)
                 continue;
 
-            const data:Float32Array|Error = await tremorwasm.read_data(file!)
+            let data:Float32Array|Error = await tremorwasm.read_data(file!)
             if(data instanceof Error)
                 return data as Error
             
+            if(f_min > 0 || f_max < mseed.meta.samplerate)
+                data = signalprocessing.bandpass_filter(data, mseed.meta.samplerate, f_min, f_max)
+
             const envelope: Float32Array = log1p(compute_envelope_from_signal(data))
 
             let file_max: number = 0
