@@ -2,10 +2,9 @@ import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
-import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
-import { MSEED_Heatmap } from './mseed-heatmap.tsx'
+import { MSEED_SignalPlot, type MSEED_SignalPlotData } from "./mseed-signal-plot.tsx"
+import { MSEED_Heatmap }        from './mseed-heatmap.tsx'
 import { ContainerWithOverlay } from './plot-image.tsx'
-// import { HoverActionContainer } from './hover-action-container.tsx'
 import { SettingsContainer } from "./component-settings.tsx"
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
@@ -54,14 +53,11 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'plot',
                 label: 'Signal',
-                element: <SettingsContainer
-                    settings_entries = {[]}
-                >
-                    <D3SignalPlot
+                element: 
+                    <MSEED_SignalPlot
                         $plot_data  = {this.$signal_plot_data}
-                        $is_loading = {this.$plots_loading}
+                        $loading    = {this.$plots_loading}
                     />
-                </SettingsContainer>,
             },
             {
                 key: 'spectrogram',
@@ -71,7 +67,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 >
                     <ContainerWithOverlay
                         $is_loading     = {this.$plots_loading}
-                        loading_message = 'Select a MSEED channel and time to plot here.'
+                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
                     >
                         <D3Heatmap
                             $data   = {this.$spectrogram_heatmap_data}
@@ -95,7 +91,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 >
                     <ContainerWithOverlay
                         $is_loading     = {this.$plots_loading}
-                        loading_message = 'Select a MSEED channel and time to plot here.'
+                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
                     >
                         <D3Heatmap
                             $data   = {this.$mps_heatmap_data}
@@ -343,7 +339,7 @@ export class MainContent extends preact.Component<MainContentProps> {
     $plots_loading: Signal<boolean> = new Signal(false)
 
     /** Currently active data in the 1D signal plot */
-    $signal_plot_data: Signal<SignalPlotData | null> = new Signal(null)
+    $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
 
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
@@ -405,8 +401,7 @@ export class MainContent extends preact.Component<MainContentProps> {
 
             this.$signal_plot_data.value = {
                 data,
-                i0,
-                i1,
+                slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
                 title:          `${code} - Signal`,
