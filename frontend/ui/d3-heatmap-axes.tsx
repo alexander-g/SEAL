@@ -91,7 +91,7 @@ export class Axes extends preact.Component<{
         const last_col_in_bounds:number = Math.min(zx.invert(w), cols)
         
 
-        const d3_x_axis:d3.Axis<d3.NumberValue> = 
+        const d3_x_axis_tickvalues: d3.Axis<d3.NumberValue> = 
             d3.axisBottom(zx)
             .tickValues(
                 d3.range( 
@@ -100,9 +100,13 @@ export class Axes extends preact.Component<{
                     step_size_x 
                 )
             )
-            // TODO: too many assumptions for this component
-            .tickFormat( t => this.#format_x_axis_value(x_axis, Number(t)) )
-        const d3_y_axis:d3.Axis<d3.NumberValue> = 
+        const x_axis_tickvalues: number[] = 
+            d3_x_axis_tickvalues.tickValues()!.map(Number)
+        const d3_x_axis: d3.Axis<d3.NumberValue> = 
+            d3_x_axis_tickvalues.tickFormat( 
+                (_, i) => this.#format_x_axis_value(x_axis, x_axis_tickvalues, i) 
+            )
+        const d3_y_axis: d3.Axis<d3.NumberValue> = 
             d3.axisLeft(zy)
             .tickValues(this.#resolve_y_axis_tick_values(rows, y_axis_tick_values))
             .tickFormat((value) =>
@@ -125,8 +129,9 @@ export class Axes extends preact.Component<{
         `translate(0,${this.props.$dimensions.value.plot_height})`
     )
 
-    #format_x_axis_value(x_axis:number[], index:number): string {
-        const value:number|undefined = x_axis[index]
+    #format_x_axis_value(x_axis:number[], ticks:number[], tick_index:number): string {
+        const axis_index:number = ticks[tick_index]!
+        const value:number|undefined = x_axis[axis_index]
         if(value == undefined)
             return ''
 
@@ -135,11 +140,13 @@ export class Axes extends preact.Component<{
         if(formatter != undefined)
             return formatter(value)
 
+
+        // TODO: time is only implicit, make it explicit in the props
         const as_date = new Date( value * 1000 )
-        if(index == 0)
+        if(tick_index == 0)
             return strftime_ISO8601_datetime(as_date)
         else {
-            const previous_date = new Date( x_axis[index-1]! * 1000 )
+            const previous_date = new Date( x_axis[ticks[tick_index-1]!]! * 1000 )
             if( same_day(as_date, previous_date) )
                 return strftime_ISO8601_time(as_date)
             else
