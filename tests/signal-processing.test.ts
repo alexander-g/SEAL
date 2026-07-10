@@ -50,6 +50,32 @@ Deno.test('bandpass', () => {
     
 })
 
+Deno.test('stft roundtrip', () => {
+    const fs: number = 200
+    const signal_length: number = 4000
+    const signal: Float32Array = new Float32Array(signal_length)
+    for(let i:number = 0; i < signal_length; i++) {
+        const t: number = i / fs
+        signal[i] =
+            Math.sin(2 * Math.PI * 5 * t) +
+            0.4 * Math.sin(2 * Math.PI * 30 * t)
+    }
+
+    const stft_output: sig.STFTOutput | Error = sig.stft(signal, fs, 512, 128, 512)
+    assert(!(stft_output instanceof Error))
+
+    const recovered: Float32Array | Error = sig.istft(stft_output)
+    assert(!(recovered instanceof Error))
+
+    assert(recovered.length == signal.length)
+
+    let sum_abs_diff: number = 0
+    for(let i:number = 0; i < signal.length; i++)
+        sum_abs_diff += Math.abs(signal[i]! - recovered[i]!)
+
+    const mean_abs_diff: number = sum_abs_diff / signal.length
+    assert(mean_abs_diff < 1e-3, mean_abs_diff.toExponential())
+})
 
 
 
