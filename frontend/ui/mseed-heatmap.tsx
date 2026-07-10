@@ -379,6 +379,9 @@ export class MSEED_Heatmap extends preact.Component<{
         
         const f_min: number = this.settings.$envelope_bandpass_fmin.value
         const f_max: number = this.settings.$envelope_bandpass_fmax.value
+
+        // mapping "network.station.location.channel" its maximum envelope value
+        const per_channel_maxima: Record<string, number> = {}
         
         const all_items: EnvelopeHeatmapItem[] = []
         for(const index of file_indices) {
@@ -425,11 +428,28 @@ export class MSEED_Heatmap extends preact.Component<{
                 })
             }
 
+            const code: string = combine_mseed_codes(mseed.meta)
+            per_channel_maxima[code] = 
+                Math.max(file_max, per_channel_maxima[code] ?? 0);
+
             for(const envelope_item of file_items) {
-                envelope_item.color = envelope_item.color / file_max;
+                // envelope_item.color = envelope_item.color / file_max;
                 all_items.push(envelope_item)
             }
         }
+
+        for(const index in all_items) {
+            const item: EnvelopeHeatmapItem = all_items[index]!
+            const mseed: MSEED_FileAndMeta = mseeds[item.mseedindex]!
+            const code: string = combine_mseed_codes(mseed.meta)
+            const channel_maximum: number|undefined = per_channel_maxima[code]
+            if(channel_maximum == undefined)
+                // should not happen
+                continue
+            
+            item.color = item.color / channel_maximum
+        }
+
         return all_items;
     }
 }
