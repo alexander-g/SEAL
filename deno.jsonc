@@ -17,7 +17,10 @@
     "d3-tile":              "npm:d3-tile@1.0.0",
     "@types/d3":            "npm:@types/d3@7.4.3",
     "@types/d3-tile":       "npm:@types/d3-tile@1.0.1",
-    "pyodide" :             "npm:pyodide@0.29.3",
+    "pyodide":              "npm:pyodide@0.29.3",
+
+    "fft.js":               "npm:fft.js@4.0.4",
+    "fili":                 "npm:fili@2.0.3"
   },
   "compilerOptions": {
     "lib": ["dom", "deno.ns"],
@@ -34,7 +37,7 @@
   "tasks": {
     "install": "deno install && deno task install-bundle && deno task install-pyodide",
 
-    // still need to add --frozen=false after task: "deno task --frozen-false install-update"
+    // still need to add --frozen=false after task: "deno task --frozen=false install-update"
     "install-update": "deno install --frozen=false",
 
     // to download esbuild

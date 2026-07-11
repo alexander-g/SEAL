@@ -2,9 +2,10 @@ import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
-import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
-import { MSEED_Heatmap } from './mseed-heatmap.tsx'
+import { MSEED_SignalPlot, type MSEED_SignalPlotData } from "./mseed-signal-plot.tsx"
+import { MSEED_Heatmap }        from './mseed-heatmap.tsx'
 import { ContainerWithOverlay } from './plot-image.tsx'
+import { SettingsContainer } from "./component-settings.tsx"
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
@@ -52,54 +53,61 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'plot',
                 label: 'Signal',
-                element: <D3SignalPlot
-                    $plot_data  = {this.$signal_plot_data}
-                    $is_loading = {this.$plots_loading}
-                />,
+                element: 
+                    <MSEED_SignalPlot
+                        $plot_data  = {this.$signal_plot_data}
+                        $loading    = {this.$plots_loading}
+                    />
             },
             {
                 key: 'spectrogram',
                 label: 'Spectrogram',
-                element: 
-                <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
+                element: <SettingsContainer
+                    settings_entries = {[]}
                 >
-                    <D3Heatmap
-                        $data   = {this.$spectrogram_heatmap_data}
-                        $x_axis = {this.$spectrogram_time_axis}
-                        $y_axis = {this.$spectrogram_frequency_axis}
-                        on_click = {this.on_spectrogram_click}
-                        $title   = {this.$spectrogram_title}
-                        y_axis_label = 'Frequency (Hz)'
-                        x_axis_label = 'Time (UTC)'
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                    />
-                </ContainerWithOverlay>,
+                    <ContainerWithOverlay
+                        $is_loading     = {this.$plots_loading}
+                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                    >
+                        <D3Heatmap
+                            $data   = {this.$spectrogram_heatmap_data}
+                            $x_axis = {this.$spectrogram_time_axis}
+                            $y_axis = {this.$spectrogram_frequency_axis}
+                            on_click = {this.on_spectrogram_click}
+                            $title   = {this.$spectrogram_title}
+                            y_axis_label = 'Frequency (Hz)'
+                            x_axis_label = 'Time (UTC)'
+                            enable_hover = {false}
+                            enable_zoom  = {false}
+                        />
+                    </ContainerWithOverlay>
+                </SettingsContainer>,
             },
             {
                 key: 'mps',
                 label: 'Modulation Power Spectrum',
-                element:
-                <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
+                element: <SettingsContainer
+                    settings_entries = {[]}
                 >
-                    <D3Heatmap
-                        $data   = {this.$mps_heatmap_data}
-                        $x_axis = {this.$mps_temporal_axis}
-                        $y_axis = {this.$mps_spectral_axis}
-                        on_click = {this.on_mps_click}
-                        $title   = {this.$mps_title}
-                        y_axis_label = 'Spectral Modulation (1/Hz)'
-                        x_axis_label = 'Temporal Modulation (Hz)'
-                        x_axis_label_formatter = {this.format_mps_axis_value}
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                        colormap     = 'magma'
-                    />
-                </ContainerWithOverlay>,
+                    <ContainerWithOverlay
+                        $is_loading     = {this.$plots_loading}
+                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                    >
+                        <D3Heatmap
+                            $data   = {this.$mps_heatmap_data}
+                            $x_axis = {this.$mps_temporal_axis}
+                            $y_axis = {this.$mps_spectral_axis}
+                            on_click = {this.on_mps_click}
+                            $title   = {this.$mps_title}
+                            y_axis_label = 'Spectral Modulation (1/Hz)'
+                            x_axis_label = 'Temporal Modulation (Hz)'
+                            x_axis_label_formatter = {this.format_mps_axis_value}
+                            enable_hover = {false}
+                            enable_zoom  = {false}
+                            colormap     = 'magma'
+                        />
+                    </ContainerWithOverlay>
+                </SettingsContainer>,
             },
             {
                 key: 'map',
@@ -126,6 +134,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             }}>
                 <MSEED_Heatmap 
                     $mseed_meta = {this.$mseed_meta} 
+                    $mseeds     = {this.props.$mseeds}
                     $inference  = {this.props.$inference}
                     $events     = {this.props.$events}
                     on_click    = {this.on_heatmap_item_select}
@@ -330,7 +339,7 @@ export class MainContent extends preact.Component<MainContentProps> {
     $plots_loading: Signal<boolean> = new Signal(false)
 
     /** Currently active data in the 1D signal plot */
-    $signal_plot_data: Signal<SignalPlotData | null> = new Signal(null)
+    $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
 
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
@@ -392,8 +401,7 @@ export class MainContent extends preact.Component<MainContentProps> {
 
             this.$signal_plot_data.value = {
                 data,
-                i0,
-                i1,
+                slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
                 title:          `${code} - Signal`,

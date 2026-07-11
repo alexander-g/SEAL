@@ -1,5 +1,4 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
-import { OverlayDiv } from './overlay-div.tsx'
 import { strftime_ISO8601_time, strftime_ISO8601_datetime } from "../lib/util.ts"
 import { 
     PlotTitleLabel, 
@@ -13,16 +12,14 @@ import * as d3 from 'd3'
 /** Signal plot inputs derived from MSEED selection */
 export type SignalPlotData = {
     data: Float32Array,
-    i0: number,
-    i1: number,
     start_time: Date,
     sample_rate_hz: number,
     title: string,
+    x_domain: [Date, Date],
 }
 
-type D3SignalPlotProps = {
+export type D3SignalPlotProps = {
     $plot_data: Readonly<Signal<SignalPlotData | null>>
-    $is_loading: Readonly<Signal<boolean>>
 }
 
 
@@ -61,21 +58,9 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         `translate(0,${this.$plot_height.value})`
     )
 
-    $initialized: Signal<boolean> = new Signal(false)
-    $status_message: Signal<string> = new Signal(
-        'Select a MSEED channel and time to plot here.'
-    )
-    $overlay_message: Readonly<Signal<string>> = signals.computed(() =>
-        this.props.$is_loading.value
-            ? 'Loading...'
-            : this.$status_message.value
-    )
-    $overlay_on: Readonly<Signal<boolean>> = signals.computed(() =>
-        !this.$initialized.value || this.props.$is_loading.value
-    )
-
     render(): JSX.Element {
-        return <div
+        return <>
+        <div
             class = 'd3-container d3-signal-plot'
             style = {{ 
                 position:   'relative', 
@@ -133,11 +118,8 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                     />
                 </g>
             </svg>
-
-            <OverlayDiv $visible = {this.$overlay_on}>
-                {this.$overlay_message}
-            </OverlayDiv>
         </div>
+        </>
     }
 
     override componentDidMount(): void {
@@ -190,47 +172,16 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         const plot_data: SignalPlotData | null = this.props.$plot_data.value
         if(plot_data == null) {
             this.#clear_plot()
-            this.$initialized.value = false
-            this.$status_message.value =
-                'Select a MSEED channel and time to plot here.'
             return
         }
 
-        const bounds: SliceBounds = get_slice_bounds(
-            plot_data.i0,
-            plot_data.i1,
-            plot_data.data.length,
-        )
-        const sliced_data: Float32Array =
-            plot_data.data.slice(bounds.start, bounds.stop)
-        if(sliced_data.length == 0) {
-            this.#clear_plot()
-            this.$initialized.value = false
-            this.$status_message.value = 'No data to plot.'
-            return
-        }
+        const data: Float32Array = plot_data.data
+        const time_domain: [Date, Date] = plot_data.x_domain
 
-        const time_domain: [Date, Date] | Error = compute_time_domain(
-            plot_data.start_time,
-            bounds.start,
-            bounds.stop,
-            plot_data.sample_rate_hz,
-        )
-        if(time_domain instanceof Error) {
-            this.#clear_plot()
-            this.$initialized.value = false
-            this.$status_message.value = time_domain.message
-            return
-        }
-
-        const y_domain: [number, number] | Error = compute_signal_y_domain(
-            plot_data.data,
-            sliced_data,
-        )
+        const y_domain: [number, number] | Error = 
+            compute_signal_y_domain(data, data)
         if(y_domain instanceof Error) {
             this.#clear_plot()
-            this.$initialized.value = false
-            this.$status_message.value = y_domain.message
             return
         }
 
@@ -253,9 +204,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                 return x_scale(new Date(time_ms))
             })
             .y((value: number) => y_scale(value))
-
-        const line_values: number[] = Array.from(sliced_data)
-        const line_path: string | null = line_generator(line_values)
+        const line_path: string | null = line_generator(data)
 
         const tick_format = (d: Date, index:number) => 
             (index == 0)? strftime_ISO8601_datetime(d) : strftime_ISO8601_time(d)
@@ -276,8 +225,6 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             .call(y_axis)
 
         this.$plot_title.value = plot_data.title
-        this.$initialized.value = true
-        this.$status_message.value = ''
     }
 
     #clear_plot(): void {
@@ -314,10 +261,6 @@ type SVGPlotDimensions = {
     plot_height: number,
 }
 
-type SliceBounds = {
-    start: number,
-    stop: number,
-}
 
 
 /** Compute svg and plot dimensions from measured size */
@@ -330,15 +273,6 @@ function get_plot_dimensions(measured: Size, margin: PlotMargin): SVGPlotDimensi
     return { svg_width, svg_height, plot_width, plot_height }
 }
 
-/** Clamp slice bounds to valid data range */
-export function get_slice_bounds(i0: number, i1: number, n_samples: number): SliceBounds {
-    if(n_samples <= 0)
-        return { start: 0, stop: 0 }
-
-    const start: number = Math.max(0, Math.min(i0, n_samples))
-    const stop: number = Math.max(start, Math.min(i1, n_samples))
-    return { start, stop }
-}
 
 /** Convert a slice into time bounds */
 export function compute_time_domain(
