@@ -73,7 +73,7 @@ export class MSEED_SignalPlot extends preact.Component<{
     settings: MSEED_SignalPlotSettings = new MSEED_SignalPlotSettings()
 
     on_new_settings = () => {
-        console.log('on_new_settings: TODO')
+        // currently unused, settings changes are automatically adapted above
     }
 }
 
