@@ -397,8 +397,9 @@ export class MSEED_Heatmap extends preact.Component<{
             if(data instanceof Error)
                 return data as Error
             
-            if(f_min > 0 || f_max < mseed.meta.samplerate)
-                data = signalprocessing.bandpass_filter(data, mseed.meta.samplerate, f_min, f_max)
+            const fs:number = mseed.meta.samplerate
+            if(f_min > 0 || f_max < fs)
+                data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
 
             const envelope: Float32Array = log1p(compute_envelope_from_signal(data))
 
@@ -408,7 +409,6 @@ export class MSEED_Heatmap extends preact.Component<{
                 if(og_item.mseedindex != index)
                     continue;
 
-                const fs: number = mseed.meta.samplerate
                 const t0: number = mseed.meta.starttime.getTime() / 1000
                 const envelope_slice: Float32Array|null = slice_signal_at_time(
                     envelope, 

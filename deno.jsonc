@@ -20,6 +20,7 @@
     "pyodide":              "npm:pyodide@0.29.3",
 
     "fft.js":               "npm:fft.js@4.0.4",
+    "fili":                 "npm:fili@2.0.3"
   },
   "compilerOptions": {
     "lib": ["dom", "deno.ns"],

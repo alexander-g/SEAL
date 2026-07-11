@@ -1,5 +1,5 @@
 import {default as fftjs} from "fft.js"
-
+import {default as fili} from "fili"
 
 
 
@@ -68,10 +68,33 @@ export function bandpass_filter(
     fftresult.fftoutput.fill(0, index1)
     const ifftresult:Float32Array = ifft(fftresult.fftoutput, signal.length)
 
-    const padded: number = ifftresult.length - n
-    return ifftresult.slice(padded/2, ifftresult.length - padded/2)
+    return trim_both_sides(ifftresult, n)
+    // const padded: number = ifftresult.length - n
+    // return ifftresult.slice(padded/2, ifftresult.length - padded/2)
 }
 
+
+export function bandpass_filter_fir(
+    signal: Float32Array, 
+    fs:     number, 
+    f_min:  number, 
+    f_max:  number,
+): Float32Array {
+    const n: number = signal.length;
+    signal = reflect_pad_and_taper_signal_both_sides(signal, fs, 3, 10)
+
+    const fir_calculator = new fili.FirCoeffs();
+    const fir_coeffs = fir_calculator.bandpass({
+        order: 100,
+        Fs:    fs,
+        F1:    f_min,
+        F2:    f_max,
+    });
+    const fir_filter = new fili.FirFilter(fir_coeffs);
+    const output: number[] = fir_filter.simulate(signal)
+    
+    return trim_both_sides(Float32Array.from(output), n)
+}
 
 
 
@@ -169,4 +192,14 @@ function reflect_pad_and_taper_signal_both_sides(
     }
 
     return output;
+}
+
+function trim_both_sides(signal:Float32Array, to_size:number): Float32Array {
+    const n_to_trim: number = signal.length - to_size
+    if(n_to_trim <= 0)
+        return signal;
+
+    const trim_left: number = Math.floor(n_to_trim / 2)
+    const trim_right: number = n_to_trim - trim_left
+    return signal.slice(trim_left, -trim_right)
 }
