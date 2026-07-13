@@ -67,13 +67,21 @@ export class WorkerPool {
         job?.result_promise?.resolve(message.envelope)
         if(job?.worker != undefined)
             job.worker.busy = false
+        if (job)
+            delete this.pending[message.task_id]
 
         this.run_next()
     }
 
     on_worker_error = (event: ErrorEvent) => {
         console.log('WORKER ERROR:', event)
-        // ??? how to get the correct resolve() here?
+        for (const [task_id, job] of Object.entries(this.pending)) {
+            if (job.worker?.worker === event.target) {
+                job.result_promise.resolve(new Error(event.message))
+                delete this.pending[Number(task_id)]
+            }
+        }
+        this.run_next()
     }
 
     run_next() {
