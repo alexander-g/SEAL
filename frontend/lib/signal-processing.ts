@@ -79,16 +79,38 @@ export function bandpass_filter_fir(
     fs:     number, 
     f_min:  number, 
     f_max:  number,
+    order:  number = 100
 ): Float32Array {
     const n: number = signal.length;
     signal = reflect_pad_and_taper_signal_both_sides(signal, fs, 3, 10)
 
     const fir_calculator = new fili.FirCoeffs();
     const fir_coeffs = fir_calculator.bandpass({
-        order: 100,
+        order: order,
         Fs:    fs,
         F1:    f_min,
         F2:    f_max,
+    });
+    const fir_filter = new fili.FirFilter(fir_coeffs);
+    const output: number[] = fir_filter.simulate(signal)
+    
+    return trim_both_sides(Float32Array.from(output), n)
+}
+
+export function lowpass_filter_fir(
+    signal: Float32Array, 
+    fs:     number, 
+    f_max:  number,
+    order:  number = 100
+): Float32Array {
+    const n: number = signal.length;
+    signal = reflect_pad_and_taper_signal_both_sides(signal, fs, 3, 10)
+
+    const fir_calculator = new fili.FirCoeffs();
+    const fir_coeffs = fir_calculator.lowpass({
+        order: order,
+        Fs:    fs,
+        Fc:    f_max,
     });
     const fir_filter = new fili.FirFilter(fir_coeffs);
     const output: number[] = fir_filter.simulate(signal)
@@ -194,6 +216,7 @@ function reflect_pad_and_taper_signal_both_sides(
     return output;
 }
 
+/** Slice the input left and right so that the result is of length `to_size` */
 function trim_both_sides(signal:Float32Array, to_size:number): Float32Array {
     const n_to_trim: number = signal.length - to_size
     if(n_to_trim <= 0)
@@ -203,3 +226,34 @@ function trim_both_sides(signal:Float32Array, to_size:number): Float32Array {
     const trim_right: number = n_to_trim - trim_left
     return signal.slice(trim_left, -trim_right)
 }
+
+
+
+export function compute_envelope(
+    signal: Float32Array, 
+    fs:     number,
+    f_min:  number,
+    f_max:  number,
+): Float32Array {
+    signal = bandpass_filter_fir(
+        signal, 
+        fs, 
+        f_min, 
+        f_max, 
+        /*order=*/50
+    )
+
+    for(let i:number = 0; i < signal.length; i++) 
+        signal[i] = Math.abs(signal[i]!)
+
+    // TODO: lowpass filter
+    //signal = lowpass_filter_fir(signal, fs, /*f_max=*/1, /*order=*/50)
+
+    for(let i:number = 0; i < signal.length; i++) 
+        signal[i] = Math.log1p(signal[i]!)
+
+    return signal;
+}
+
+
+
