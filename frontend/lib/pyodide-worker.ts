@@ -224,13 +224,11 @@ async function handle_plot_spectrogram(
     data:    WorkerSpectrogramCommand,
     pyodide: Pyodide
 ): Promise<WorkerSpectrogramResult|Error> {
-    const output:SpectrogramData|Error = await pyodide.plot_spectrogram(
+    const output:SpectrogramData|Error = await pyodide.create_spectrogram_for_visualization(
         data.data,
         data.i0,
         data.i1,
-        data.start_time,
         data.sample_rate_hz,
-        data.title,
     )
     if(output instanceof Error)
         return output as Error
