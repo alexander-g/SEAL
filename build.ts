@@ -17,6 +17,10 @@ const HARDCODED_OUTPUTFILE_INDEX_JS:string   = 'index.tsx.js'
 const HARDCODED_OUTPUTFILE_INDEX_HTML:string = 'index.html'
 const HARDCODED_INDEX_TSX:string = './frontend/index.tsx'
 
+
+const HARDCODED_WORKER_JS:string = './frontend/lib/worker.ts'
+const HARDCODED_OUTPUTFILE_WORKER_JS:string = 'worker.ts.js'
+
 const HARDCODED_PYODIDE_WORKER_JS:string = './frontend/lib/pyodide-worker.ts'
 const HARDCODED_OUTPUTFILE_PYODIDE_WORKER_JS:string = 'pyodide-worker.ts.js'
 
@@ -99,6 +103,12 @@ async function bundle_pyodide_worker(outputdir:string, minify:boolean) {
     return await bundle_js_file(HARDCODED_PYODIDE_WORKER_JS, outputpath, minify)
 }
 
+async function bundle_worker(outputdir:string, minify:boolean) {
+    const outputpath:string = 
+        path.join(outputdir, HARDCODED_OUTPUTFILE_WORKER_JS)
+    return await bundle_js_file(HARDCODED_WORKER_JS, outputpath, minify)
+}
+
 
 function copy_pyodide_scripts(outputdir:string) {
     for(const py_script of PYODIDE_SCRIPTS) {
@@ -165,6 +175,7 @@ export async function build_all(
     clear_outputdir(outputdir)
     await compile_index_html(outputdir, {pyodide_vendored: vendor_pyodide});
     await bundle_index_js(outputdir, minify);
+    await bundle_worker(outputdir, minify);
     await bundle_pyodide_worker(outputdir, minify);
     await copy_pyodide_scripts(outputdir);
     

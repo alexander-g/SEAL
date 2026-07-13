@@ -5,7 +5,8 @@ import type { MSeedMetadata }     from "../lib/mseed-parsing.ts";
 import type { QuakeEvent }        from "../lib/quakeml.ts";
 import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
 import { tremorwasm }             from "../lib/file-input.ts";
-import * as signalprocessing      from "../lib/signal-processing.ts"
+import { WorkerPool }             from "../lib/workerpool.ts"
+import { is_deno }                from "../lib/util.ts"
 
 import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
 import { SettingsContainer, SettingsEntry } from "../ui/component-settings.tsx"
@@ -372,6 +373,16 @@ export class MSEED_Heatmap extends preact.Component<{
         }
     }
 
+    #pool:WorkerPool|undefined;
+    override componentWillMount(): void {
+        // NOTE: will block build.ts otherwise
+        if(!is_deno())
+            this.#pool = new WorkerPool()
+    }
+    override componentWillUnmount(): void {
+        this.#pool?.terminate()
+    }
+
     async compute_envelope_heatmap_items(): Promise<EnvelopeHeatmapItem[]|Error> {
         const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
         const file_indices: Set<number> = 
@@ -380,10 +391,10 @@ export class MSEED_Heatmap extends preact.Component<{
         const f_min: number = this.settings.$envelope_bandpass_fmin.value
         const f_max: number = this.settings.$envelope_bandpass_fmax.value
 
-        // mapping "network.station.location.channel" its maximum envelope value
-        const per_channel_maxima: Record<string, number> = {}
+
+        //const promises: {promise:Promise<Float32Array|Error>, index:number}[] = []
+        const promises: {promise:Promise<EnvelopeHeatmapItem[]>, index:number}[] = []
         
-        const all_items: EnvelopeHeatmapItem[] = []
         for(const index of file_indices) {
             this.$loading_envelope_message.value = 
                 `Loading ${index}/${file_indices.size}`
@@ -393,49 +404,38 @@ export class MSEED_Heatmap extends preact.Component<{
             if(mseed == undefined)
                 continue;
 
-            let data:Float32Array|Error = await tremorwasm.read_data(file!)
+            const data:Float32Array|Error = await tremorwasm.read_data(file!)
             if(data instanceof Error)
                 return data as Error
             
             const fs:number = mseed.meta.samplerate
-            if(f_min > 0 || f_max < fs)
-                data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
 
-            const envelope: Float32Array = log1p(compute_envelope_from_signal(data))
-
-            let file_max: number = 0
-            const file_items: EnvelopeHeatmapItem[] = []
-            for(const og_item of this.$transformed.value.items) {
-                if(og_item.mseedindex != index)
-                    continue;
-
-                const t0: number = mseed.meta.starttime.getTime() / 1000
-                const envelope_slice: Float32Array|null = slice_signal_at_time(
-                    envelope, 
-                    fs, 
-                    og_item.timestamp - t0, 
-                    HARDCODED_BIN_LENGTH_SECONDS
+            const envelope_promise: Promise<Float32Array|Error> = 
+                (await this.#pool!.compute_envelope(data, fs, f_min, f_max)).promise
+            const heatmapitems_promise: Promise<EnvelopeHeatmapItem[]> = 
+                convert_envelope_to_heatmap_items(
+                    envelope_promise, 
+                    mseed.meta, 
+                    index, 
+                    this.$transformed.value.items
                 )
-                if(envelope_slice == null)
-                    continue;
+            promises.push({index, promise:heatmapitems_promise})
+        }
 
-                const slice_max: number = maximum(envelope_slice)
-                file_max = Math.max(file_max, slice_max)
 
-                file_items.push({
-                    ...og_item,
-                    color: slice_max,
-                })
-            }
+        // mapping "network.station.location.channel" its maximum envelope value
+        const per_channel_maxima: Record<string, number> = {}
+        const all_items: EnvelopeHeatmapItem[] = []
+        for(const {index, promise} of promises) {
+            const items: EnvelopeHeatmapItem[] = await promise;
 
+            const mseed: MSEED_FileAndMeta|undefined = mseeds[index]!
             const code: string = combine_mseed_codes(mseed.meta)
-            per_channel_maxima[code] = 
-                Math.max(file_max, per_channel_maxima[code] ?? 0);
+            for(const item of items)
+                per_channel_maxima[code] = 
+                    Math.max(item.color, per_channel_maxima[code] ?? 0);
 
-            for(const envelope_item of file_items) {
-                // envelope_item.color = envelope_item.color / file_max;
-                all_items.push(envelope_item)
-            }
+            all_items.push(...items)
         }
 
         for(const index in all_items) {
@@ -665,6 +665,51 @@ function hash_string_to_unit_interval(value:string): number {
         hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
     const normalized:number = Math.abs(hash % 10000) / 10000
     return normalized
+}
+
+
+/** Helper function to finalize creation of a heatmap, with the envelopes
+ *  created by a worker pool */
+async function convert_envelope_to_heatmap_items(
+    envelope:   Float32Array|Promise<Float32Array|Error>, 
+    meta:       MSeedMetadata, 
+    mseedindex: number,
+    og_items:   HeatmapDataItemWithFile[],
+): Promise<EnvelopeHeatmapItem[]> {
+    const maybe_envelope: Float32Array|Error = await envelope;
+    if(maybe_envelope instanceof Error) {
+        console.log('Error computing envelope in pool.', maybe_envelope)
+        return []
+    }
+    envelope = maybe_envelope;
+
+    const fs: number = meta.samplerate
+
+    let file_max: number = 0
+    const items: EnvelopeHeatmapItem[] = []
+    for(const og_item of og_items) {
+        if(og_item.mseedindex != mseedindex)
+            continue;
+
+        const t0: number = meta.starttime.getTime() / 1000
+        const envelope_slice: Float32Array|null = slice_signal_at_time(
+            envelope, 
+            fs, 
+            og_item.timestamp - t0, 
+            HARDCODED_BIN_LENGTH_SECONDS
+        )
+        if(envelope_slice == null)
+            continue;
+
+        const slice_max: number = maximum(envelope_slice)
+        file_max = Math.max(file_max, slice_max)
+
+        items.push({
+            ...og_item,
+            color: slice_max,
+        })
+    }
+    return items
 }
 
 
