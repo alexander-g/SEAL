@@ -24,7 +24,7 @@ import type { IPyodide, SpectrogramData } from '../lib/pyodide.ts'
 import type { Marker, MarkerVisual } from './d3-map.tsx'
 import type { MSEED_FileAndMeta } from '../lib/file-input.ts'
 import type { MSeedMetadata }     from "../lib/mseed-parsing.ts"
-import type { Station }           from '../lib/station-xml.ts'
+import type { Station, Channel }  from '../lib/station-xml.ts'
 import type { QuakeEvent }        from '../lib/quakeml.ts'
 import type { AudioWaveform }     from './audio-playback-controls.tsx'
 
@@ -370,7 +370,6 @@ export class MainContent extends preact.Component<MainContentProps> {
 
         this.$plots_loading.value = true
 
-        const tx0 = performance.now()
         try {
             if(this.pyodide == undefined) {
                 console.error('Pyodide not initialized')
@@ -395,15 +394,6 @@ export class MainContent extends preact.Component<MainContentProps> {
             }
 
             const code: string = combine_mseed_codes(mseed.meta)
-            // const spectrogram_promise:Promise<SpectrogramData|Error> =
-            //     this.pyodide.plot_spectrogram(
-            //         data,
-            //         i0,
-            //         i1,
-            //         mseed.meta.starttime,
-            //         mseed.meta.samplerate,
-            //         code,
-            //     )
             const mps_promise:Promise<SpectrogramData|Error> =
                 this.pyodide.plot_modulation_power_spectrum(
                     data,
@@ -414,12 +404,15 @@ export class MainContent extends preact.Component<MainContentProps> {
                     code,
                 )
 
+            const channel: Channel|null = 
+                find_channel_for_mseed_meta(mseed.meta, this.props.$stations.value)
             this.$signal_plot_data.value = {
                 data,
                 slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
                 title:          `${code} - Signal`,
+                response:       channel?.response,
             }
             this.$spectrogram_plot_data.value = {
                 signal:         data,
@@ -432,30 +425,6 @@ export class MainContent extends preact.Component<MainContentProps> {
                 data:       await slice_and_prepare_audio(data, i0, i1, mseed.meta.samplerate, this.pyodide!), 
                 samplerate: 8000,
             }
-
-            // const spectrogram_data:SpectrogramData|Error = await spectrogram_promise
-            // if(spectrogram_data instanceof Error) {
-            //     console.error(
-            //         `Error computing spectrogram: ${spectrogram_data.message}`
-            //     )
-            //     return;
-            // }
-            // const spectrogram_start_s:number =
-            //     mseed.meta.starttime.getTime() / 1000
-            //     + (i0 / mseed.meta.samplerate)
-
-            // this.$spectrogram_time_axis.value = Array.from(
-            //     spectrogram_data.t_axis,
-            //     t => spectrogram_start_s + t
-            // )
-            // this.$spectrogram_frequency_axis.value = Array.from(
-            //     spectrogram_data.f_axis,
-            //     f => format_frequency_label(f)
-            // )
-            // this.$spectrogram_title.value = `${code} - Spectrogram`
-
-            // this.$spectrogram_heatmap_data.value = 
-            //     spectrogram_to_heatmap(spectrogram_data)
 
             const mps_data:SpectrogramData|Error = await mps_promise
             if(mps_data instanceof Error) {
@@ -473,19 +442,9 @@ export class MainContent extends preact.Component<MainContentProps> {
             this.$mps_heatmap_data.value = spectrogram_to_heatmap(mps_data)
         } finally {
             this.$plots_loading.value = false
-
-            const tx1 = performance.now()
-            console.log('total: ', tx1 - tx0)
         }
     }
 
-
-    // $spectrogram_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
-    // $spectrogram_time_axis:      Signal<number[]>          = new Signal([])
-    // $spectrogram_frequency_axis: Signal<string[]>          = new Signal(['0'])
-    // $spectrogram_title:          Signal<string>            = new Signal('')
-
-    // on_spectrogram_click = (_selected:number) => {}
 
     $mps_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
     $mps_temporal_axis:  Signal<number[]>          = new Signal([])
@@ -516,11 +475,36 @@ function station_has_mseed_meta(
     mseed_meta: MSeedMetadata[],
 ): boolean {
     for(const meta of mseed_meta) {
-        if(meta.station == station.code)
+        if(meta.station == station.code && meta.network == station.network)
             return true
     }
 
     return false
+}
+
+
+function find_station_for_mseed_meta(
+    meta:     MSeedMetadata, 
+    stations: Station[]
+): Station|null {
+    for(const station of stations)
+        if(meta.station == station.code && meta.network == station.network)
+            return station
+    return null;
+}
+
+function find_channel_for_mseed_meta(
+    meta:     MSeedMetadata,
+    stations: Station[]
+): Channel|null {
+    const station: Station|null = find_station_for_mseed_meta(meta, stations)
+
+    for(const channel of station?.channels ?? []) {
+        // NOTE: ignoring location code on purpose because often inconsistent
+        if(meta.channel == channel.code)
+            return channel
+    }
+    return null
 }
 
 

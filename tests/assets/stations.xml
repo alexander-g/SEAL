@@ -4,7 +4,7 @@
   <Module>ObsPy 1.4.2</Module>
   <ModuleURI>https://www.obspy.org</ModuleURI>
   <Created>2026-03-31T06:23:47.021742Z</Created>
-  <Network code="Unknown">
+  <Network code="XXX">
     <Station code="WPB">
       <Latitude unit="DEGREES">49.648</Latitude>
       <Longitude unit="DEGREES">-123.209</Longitude>

@@ -11,11 +11,12 @@ import * as d3 from 'd3'
 
 /** Signal plot inputs derived from MSEED selection */
 export type SignalPlotData = {
-    data: Float32Array,
-    start_time: Date,
+    data:           Float32Array,
+    start_time:     Date,
     sample_rate_hz: number,
-    title: string,
-    x_domain: [Date, Date],
+    title:          string,
+    x_domain:       [Date, Date],
+    y_axis_label?:  string,
 }
 
 export type D3SignalPlotProps = {
@@ -113,7 +114,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                         $plot_width  = {this.$plot_width}
                     />
                     <PlotYAxisLabel
-                        text         = 'Amplitude'
+                        text         = {this.$y_axis_label}
                         $plot_height = {this.$plot_height}
                     />
                 </g>
@@ -213,7 +214,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             // @ts-ignore yeah whatever
             .tickFormat(tick_format)
         const y_axis: d3.Axis<d3.NumberValue> = d3.axisLeft(y_scale)
-            .ticks(5)
+            .ticks(5, '~s')
 
         d3.select(this.path_ref.current)
             .attr('d', line_path ?? '')
@@ -238,6 +239,9 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
     }
 
     private $plot_title: Signal<string> = new Signal('')
+    private $y_axis_label: Readonly<Signal<string>> = signals.computed( 
+        () => this.props.$plot_data.value?.y_axis_label ?? 'Amplitude' 
+    )
 }
 
 

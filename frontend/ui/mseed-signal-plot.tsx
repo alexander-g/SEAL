@@ -6,8 +6,9 @@ import {
     compute_time_domain,
     type SignalPlotData,
 } from "../ui/d3-signal-plot.tsx"
-import { ContainerWithOverlay }                  from "../ui/plot-image.tsx"
+import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
+import type { Response } from "../lib/station-xml.ts"
 import * as signalprocessing from "../lib/signal-processing.ts"
 
 
@@ -16,6 +17,9 @@ import * as signalprocessing from "../lib/signal-processing.ts"
 export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'> & {
     /** Indices to slice the full signal */
     slice_indices: [number, number]
+
+    /** Instrument response for this channel */
+    response?: Response
 }
 
 
@@ -52,8 +56,16 @@ export class MSEED_SignalPlot extends preact.Component<{
         let data: Float32Array = plot_data.data
         const [i0, i1] = plot_data.slice_indices
         data = data.slice(i0, i1)
+        if(data.length < 2)
+            return null
 
-        const fs: number    = plot_data.sample_rate_hz
+        let y_axis_label:string|undefined = undefined
+        if(plot_data.response != undefined) {
+            data = remove_sensitivity(data, plot_data.response)
+            y_axis_label = `Amplitude (${plot_data.response.input_unit})`
+        }
+
+        const fs: number = plot_data.sample_rate_hz
         const x_domain: [Date, Date]|Error = 
             compute_time_domain(plot_data.start_time, i0, i1, fs)
         if(x_domain instanceof Error)
@@ -63,7 +75,7 @@ export class MSEED_SignalPlot extends preact.Component<{
         const f_max: number = this.settings.$bandpass_fmax.value
         data = signalprocessing.bandpass_filter(data, fs, f_min, f_max)
 
-        return {...plot_data, data, x_domain}
+        return {...plot_data, data, x_domain, y_axis_label}
     })
 
 
@@ -106,5 +118,16 @@ export class MSEED_SignalPlotSettings {
             },
         ]
     }
+}
+
+
+
+
+export
+function remove_sensitivity(signal:Float32Array, response:Response): Float32Array {
+    const output: Float32Array = new Float32Array(signal.length)
+    for(let i: number = 0; i < signal.length; i++)
+        output[i] = signal[i]! / response.sensitivity
+    return output;
 }
 

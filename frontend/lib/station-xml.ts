@@ -9,6 +9,7 @@ import {
 
 export type Station = {
     code:      string,
+    network:   string,
     latitude:  number,
     longitude: number,
 
@@ -16,7 +17,7 @@ export type Station = {
 }
 
 
-type Channel = {
+export type Channel = {
     /** Channel name */
     code:        string;
 
@@ -27,7 +28,7 @@ type Channel = {
     response?:   Response;
 }
 
-type Response = {
+export type Response = {
     /** Physical unit of the channel, e.g `m/s` for velocity */
     input_unit:  string;
 
@@ -56,15 +57,21 @@ export async function parse_stationxml_file(file:File): Promise<Station[]|Error>
 
         const all_stations:Station[] = []
         for(const child of xml.root.children) {
-            if(child.type == 'element' && child.name.local == 'Network')
+            if(child.type == 'element' && child.name.local == 'Network') {
+                const networkcode:string|undefined = child.attributes['code']
+                if(networkcode == undefined)
+                    return new Error('<Network> element has no "code" attribute')
+
                 for(const subchild of child.children)
                     if(subchild.type == 'element' && subchild.name.local == 'Station'){
-                        const station:Station|Error = parse_station_element(subchild)
+                        const station:Station|Error = 
+                            parse_station_element(subchild, networkcode)
                         if(station instanceof Error)
                             return new Error(`Invalid STATIONXML: ${station.message}`)
                     
                         all_stations.push(station)
                     }
+                }
         }
         
         return all_stations;
@@ -89,7 +96,7 @@ export async function is_probably_xml_file(f:File): Promise<boolean> {
 }
 
 
-function parse_station_element(element:XmlElement): Station|Error {
+function parse_station_element(element:XmlElement, network:string): Station|Error {
     if(element.name.local != 'Station')
         return new Error('Not a <Station> element')
 
@@ -140,7 +147,7 @@ function parse_station_element(element:XmlElement): Station|Error {
         }
     }
 
-    const station:Station = {code, longitude, latitude}
+    const station:Station = {code, network, longitude, latitude}
     if(channels.length > 0)
         station.channels = channels
 

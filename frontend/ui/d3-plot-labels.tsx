@@ -44,7 +44,7 @@ export function PlotXAxisLabel(props: {
 }
 
 export function PlotYAxisLabel(props: {
-    text?:        string,
+    text?:        Readonly<Signal<string>>|string,
     $plot_height: Readonly<Signal<number>>,
 }): JSX.Element {
     const label_x: number = -props.$plot_height.value / 2

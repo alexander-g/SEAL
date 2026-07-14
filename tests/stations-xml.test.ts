@@ -25,6 +25,10 @@ Deno.test('parse_stationxml', async () => {
 
     const responses = channels.map( c => c?.response ).filter(Boolean).flat()
     assert(responses.length == 2)
+
+    const networks = new Set(output0.map( station => station.network ))
+    assert(networks.size == 1)
+    assert(networks.has('XXX'))
 })
 
 
