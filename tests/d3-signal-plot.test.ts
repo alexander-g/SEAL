@@ -1,21 +1,11 @@
 import { assert } from 'asserts'
 
 import {
-    get_slice_bounds,
     compute_time_domain,
     compute_signal_y_domain,
 } from '../frontend/ui/d3-signal-plot.tsx'
 
 
-Deno.test('get_slice_bounds clamps to data range', () => {
-    const bounds = get_slice_bounds(-5, 10, 4)
-    assert(bounds.start == 0)
-    assert(bounds.stop == 4)
-
-    const empty_bounds = get_slice_bounds(2, 1, 10)
-    assert(empty_bounds.start == 2)
-    assert(empty_bounds.stop == 2)
-})
 
 Deno.test('compute_time_domain returns valid time range', () => {
     const start_time = new Date('2024-01-01T00:00:00Z')

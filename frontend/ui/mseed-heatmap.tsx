@@ -1,15 +1,22 @@
 import { preact, Signal, signals, JSX } from "../dep.ts"
 
-import { combine_mseed_codes } from "../lib/mseed-parsing.ts";
-import type { MSeedMetadata } from "../lib/mseed-parsing.ts";
-import type { QuakeEvent } from "../lib/quakeml.ts";
-import { D3Heatmap } from "../ui/d3-heatmap.tsx"
-import { type Station } from "../lib/station-xml.ts";
+import { combine_mseed_codes }    from "../lib/mseed-parsing.ts";
+import type { MSeedMetadata }     from "../lib/mseed-parsing.ts";
+import type { QuakeEvent }        from "../lib/quakeml.ts";
+import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
+import { tremorwasm }             from "../lib/file-input.ts";
+import { WorkerPool }             from "../lib/workerpool.ts"
+import { is_deno }                from "../lib/util.ts"
+
+import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
+import { SettingsContainer, SettingsEntry } from "../ui/component-settings.tsx"
+import { type Station }           from "../lib/station-xml.ts";
 import {
     type HoverCallbackPosition, 
     type DataItem as HeatmapDataItem,
     type RGB,
 } from "../ui/d3-heatmap.tsx"
+import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
 import { range } from 'd3';
 
@@ -28,6 +35,11 @@ type HeatmapDataItemWithFile = HeatmapDataItem & {
     timestamp:  number,
 }
 
+type EnvelopeHeatmapItem = HeatmapDataItemWithFile & {
+    // override
+    color: number
+}
+
 export type InferenceEvent = {
     code:string,
     time:Date
@@ -38,6 +50,9 @@ export type InferenceEvent = {
 export class MSEED_Heatmap extends preact.Component<{
     /** Metadata loaded from MSEED files */
     $mseed_meta:Readonly< Signal<MSeedMetadata[]> >,
+
+    /** MSEED files and metadata */
+    $mseeds: Readonly<Signal<MSEED_FileAndMeta[]>>,
 
     $inference: Readonly<Signal<InferenceEvent[]> >,
 
@@ -59,18 +74,35 @@ export class MSEED_Heatmap extends preact.Component<{
     $highlighted_station?: Signal<Station|null>
 }> {
     render(): JSX.Element {
-        return <D3Heatmap
-            $data    = {this.$transformed_files}
-            $x_axis  = {this.$x_axis}
-            $y_axis  = {this.$y_axis}
-            $y_axis_tick_values = {this.$y_axis_tick_values}
-            $x_axis_markers = { this.$itemized_event_timestamps }
-            $y_axis_markers = { this.$highlighted_rows }
-            on_click = {this.on_heatmap_select}
-            on_hover = {this.on_heatmap_hover}
-            y_axis_label_formatter = {this.format_station_axis_label}
-        />
+        return <>
+        <ContainerWithOverlay
+            $is_loading     = {this.$loading_envelope}
+            loading_message = {this.$loading_envelope_message}
+        >
+            <SettingsContainer
+                settings_entries = {this.settings.to_component_settings_entries()}
+                on_apply         = {this.on_new_settings}
+            >
+                <D3Heatmap
+                    $data    = {this.$transformed_files}
+                    $x_axis  = {this.$x_axis}
+                    $y_axis  = {this.$y_axis}
+                    $y_axis_tick_values = {this.$y_axis_tick_values}
+                    $x_axis_markers = { this.$itemized_event_timestamps }
+                    $y_axis_markers = { this.$highlighted_rows }
+                    on_click = {this.on_heatmap_select}
+                    on_hover = {this.on_heatmap_hover}
+                    y_axis_label_formatter = {this.format_station_axis_label}
+                    colormap = 'magma'
+                />
+            </SettingsContainer>
+        </ContainerWithOverlay>
+        </>
     }
+
+    /** Parameters modified by the user. */
+    settings: MSEED_HeatmapSettings = new MSEED_HeatmapSettings()
+
 
     /** $events, aligned to bins/items */
     $itemized_events: Readonly<Signal<ItemizedEvent[]>> = signals.computed(() => {
@@ -102,13 +134,22 @@ export class MSEED_Heatmap extends preact.Component<{
         return this.$itemized_events.value.map( e => e.time.getTime() / 1000 )
     })
 
-    private $transformed:Readonly<Signal<TransformedHeatmapData>> = signals.computed(() => {
+    /** Heatmap colors and axes, itemized in bins of equal size */
+    $transformed:Readonly<Signal<TransformedHeatmapData>> = signals.computed(() => {
         const files:MSeedMetadata[] = this.props.$mseed_meta.value
         const inference:InferenceEvent[] = this.props.$inference.value
-        return this.transform_heatmap_data(files, inference, HARDCODED_BIN_LENGTH_SECONDS)
+        const transformed:TransformedHeatmapData = this.transform_heatmap_data(
+            files,
+            inference,
+            HARDCODED_BIN_LENGTH_SECONDS,
+        )
+
+        return transformed;
     })
 
     $transformed_files:Readonly<Signal<HeatmapDataItemWithFile[]>> = signals.computed(() => {
+        if(this.$envelopes_on.value && this.$envelope_items.value.length > 0)
+            return this.$envelope_items.value
         return this.$transformed.value.items
     })
 
@@ -277,6 +318,140 @@ export class MSEED_Heatmap extends preact.Component<{
             .flat()
         this.props.on_events_hover?.(event_indices)
     }
+
+    $envelopes_on: Signal<boolean> = new Signal(false)
+    $envelope_items: Signal<EnvelopeHeatmapItem[]> = new Signal([])
+    $loading_envelope: Signal<boolean> = new Signal(false)
+    $loading_envelope_message: Signal<string> = new Signal('Loading...')
+
+    $action_label: Readonly<Signal<string>> = signals.computed(() => {
+        if(this.$loading_envelope.value)
+            return 'Heatmap settings (loading...)'
+        return 'Heatmap settings'
+    })
+
+
+    // TODO
+    $action_disabled: Readonly<Signal<boolean>> = signals.computed(() => {
+        return this.$loading_envelope.value
+    })
+
+
+
+    on_new_settings = () => {
+        if(!this.settings.$envelope_enabled.value) {
+            this.$envelopes_on.value = false
+            this.$envelope_items.value = []
+            return
+        }
+
+        this.compute_signal_envelope()
+    }
+
+
+    compute_signal_envelope = async (): Promise<void> => {
+        if(this.$loading_envelope.value)
+            return
+
+        const files:MSeedMetadata[] = this.props.$mseed_meta.value
+        if(files.length == 0)
+            return
+
+        this.$loading_envelope.value = true
+        try {
+            const computed:EnvelopeHeatmapItem[]|Error =
+                await this.compute_envelope_heatmap_items()
+            if(computed instanceof Error) {
+                console.error(computed as Error)
+                return
+            }
+
+            this.$envelope_items.value = computed
+            this.$envelopes_on.value = true
+        } finally {
+            this.$loading_envelope.value = false
+        }
+    }
+
+    #pool:WorkerPool|undefined;
+    override componentWillMount(): void {
+        // NOTE: will block build.ts otherwise
+        if(!is_deno())
+            this.#pool = new WorkerPool()
+    }
+    override componentWillUnmount(): void {
+        this.#pool?.terminate()
+    }
+
+    async compute_envelope_heatmap_items(): Promise<EnvelopeHeatmapItem[]|Error> {
+        const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
+        const file_indices: Set<number> = 
+            new Set(this.$transformed_files.value.map(item => item.mseedindex))
+        
+        const f_min: number = this.settings.$envelope_bandpass_fmin.value
+        const f_max: number = this.settings.$envelope_bandpass_fmax.value
+
+
+        //const promises: {promise:Promise<Float32Array|Error>, index:number}[] = []
+        const promises: {promise:Promise<EnvelopeHeatmapItem[]>, index:number}[] = []
+        
+        for(const index of file_indices) {
+            this.$loading_envelope_message.value = 
+                `Loading ${index}/${file_indices.size}`
+
+            const mseed: MSEED_FileAndMeta|undefined = mseeds[index]
+            const file:  File|undefined = mseed?.file
+            if(mseed == undefined)
+                continue;
+
+            const data:Float32Array|Error = await tremorwasm.read_data(file!)
+            if(data instanceof Error)
+                return data as Error
+            
+            const fs:number = mseed.meta.samplerate
+
+            const envelope_promise: Promise<Float32Array|Error> = 
+                (await this.#pool!.compute_envelope(data, fs, f_min, f_max)).promise
+            const heatmapitems_promise: Promise<EnvelopeHeatmapItem[]> = 
+                convert_envelope_to_heatmap_items(
+                    envelope_promise, 
+                    mseed.meta, 
+                    index, 
+                    this.$transformed.value.items
+                )
+            promises.push({index, promise:heatmapitems_promise})
+        }
+
+
+        // mapping "network.station.location.channel" its maximum envelope value
+        const per_channel_maxima: Record<string, number> = {}
+        const all_items: EnvelopeHeatmapItem[] = []
+        for(const {index, promise} of promises) {
+            const items: EnvelopeHeatmapItem[] = await promise;
+
+            const mseed: MSEED_FileAndMeta|undefined = mseeds[index]!
+            const code: string = combine_mseed_codes(mseed.meta)
+            for(const item of items)
+                per_channel_maxima[code] = 
+                    Math.max(item.color, per_channel_maxima[code] ?? 0);
+
+            all_items.push(...items)
+        }
+
+        for(const index in all_items) {
+            const item: EnvelopeHeatmapItem = all_items[index]!
+            const mseed: MSEED_FileAndMeta = mseeds[item.mseedindex]!
+            const code: string = combine_mseed_codes(mseed.meta)
+            const channel_maximum: number|undefined = per_channel_maxima[code]
+            if(channel_maximum == undefined)
+                // should not happen
+                continue
+            
+            item.color = item.color / channel_maximum
+        }
+
+        return all_items;
+    }
 }
 
 
@@ -359,6 +534,59 @@ function find_inference(
     return false;
 }
 
+
+function compute_envelope_from_signal(x:Float32Array): Float32Array {
+    const output: Float32Array = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++) 
+        output[i] = Math.abs(x[i]!)
+    
+    return output;
+}
+
+function slice_signal_at_time(
+    signal:         Float32Array, 
+    frequency:      number, 
+    start_seconds:  number, 
+    length_seconds: number
+): Float32Array|null {
+    const end_seconds: number = start_seconds + length_seconds;
+    
+    const index0: number = 
+        Math.min( Math.max(start_seconds * frequency, 0), signal.length )
+    const index1: number = 
+        Math.min( Math.max(end_seconds * frequency, 0), signal.length )
+
+    if(index1 <= index0)
+        return null
+
+    return signal.slice(index0, index1)
+}
+
+function maximum(x: Float32Array): number {
+    let max: number = -Infinity
+    for(const i of x)
+        max = Math.max(max, i)
+    return max;
+}
+
+function mean(x: Float32Array): number {
+    let sum: number = 0
+    for(const i of x)
+        sum = sum + i;
+    const mean: number = sum / x.length
+    return mean
+}
+
+function log1p(x: Float32Array): Float32Array {
+    const output: Float32Array = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++) 
+        output[i] = Math.log1p(x[i]!)
+    
+    return output;
+}
+
+
+
 /** Create stable data/background colors for stations. */
 function create_station_colors(codes:string[]): Record<string, RGB> {
     const station_palette:Record<string, RGB> = {}
@@ -429,6 +657,7 @@ function to_rgb_channel(channel:number): number {
     return Math.max(0, Math.min(255, Math.round(channel * 255)))
 }
 
+
 /** Convert a string into a stable 0..1 value. */
 function hash_string_to_unit_interval(value:string): number {
     let hash:number = 0
@@ -437,3 +666,81 @@ function hash_string_to_unit_interval(value:string): number {
     const normalized:number = Math.abs(hash % 10000) / 10000
     return normalized
 }
+
+
+/** Helper function to finalize creation of a heatmap, with the envelopes
+ *  created by a worker pool */
+async function convert_envelope_to_heatmap_items(
+    envelope:   Float32Array|Promise<Float32Array|Error>, 
+    meta:       MSeedMetadata, 
+    mseedindex: number,
+    og_items:   HeatmapDataItemWithFile[],
+): Promise<EnvelopeHeatmapItem[]> {
+    const maybe_envelope: Float32Array|Error = await envelope;
+    if(maybe_envelope instanceof Error) {
+        console.log('Error computing envelope in pool.', maybe_envelope)
+        return []
+    }
+    envelope = maybe_envelope;
+
+    const fs: number = meta.samplerate
+
+    let file_max: number = 0
+    const items: EnvelopeHeatmapItem[] = []
+    for(const og_item of og_items) {
+        if(og_item.mseedindex != mseedindex)
+            continue;
+
+        const t0: number = meta.starttime.getTime() / 1000
+        const envelope_slice: Float32Array|null = slice_signal_at_time(
+            envelope, 
+            fs, 
+            og_item.timestamp - t0, 
+            HARDCODED_BIN_LENGTH_SECONDS
+        )
+        if(envelope_slice == null)
+            continue;
+
+        const slice_max: number = maximum(envelope_slice)
+        file_max = Math.max(file_max, slice_max)
+
+        items.push({
+            ...og_item,
+            color: slice_max,
+        })
+    }
+    return items
+}
+
+
+
+export class MSEED_HeatmapSettings {
+    /** Heatmap colors represent envelope magnitude (takes time to compute) */
+    $envelope_enabled = new Signal<boolean>(false);
+
+    /** Lower end of the bandpass filter to apply before envelope computation */
+    $envelope_bandpass_fmin = new Signal<number>(0.0);
+
+    /** Upper end of the bandpass filter to apply before envelope computation */
+    $envelope_bandpass_fmax = new Signal<number>(99999);
+
+
+    to_component_settings_entries(): SettingsEntry[] {
+        return [
+            {type:'boolean', label:'Show envelope', $signal: this.$envelope_enabled},
+            {
+                type:    'number',  
+                label:   'Envelope bandpass lower bound (Hz)', 
+                step:    1, 
+                $signal: this.$envelope_bandpass_fmin
+            },
+            {
+                type:    'number',  
+                label:   'Envelope bandpass upper bound (Hz)', 
+                step:    1, 
+                $signal: this.$envelope_bandpass_fmax
+            },
+        ]
+    }
+}
+

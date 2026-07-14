@@ -2,9 +2,14 @@ import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
-import { D3SignalPlot, type SignalPlotData } from './d3-signal-plot.tsx'
-import { MSEED_Heatmap } from './mseed-heatmap.tsx'
+import { MSEED_SignalPlot, type MSEED_SignalPlotData } from "./mseed-signal-plot.tsx"
+import { 
+    MSEED_Spectrogram as MSEED_Spectrogram, 
+    type MSEED_Data as MSEED_SpectrogramData 
+} from "./mseed-spectrogram.tsx"
+import { MSEED_Heatmap } from "./mseed-heatmap.tsx"
 import { ContainerWithOverlay } from './plot-image.tsx'
+import { SettingsContainer } from "./component-settings.tsx"
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
@@ -52,54 +57,67 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'plot',
                 label: 'Signal',
-                element: <D3SignalPlot
-                    $plot_data  = {this.$signal_plot_data}
-                    $is_loading = {this.$plots_loading}
-                />,
+                element: 
+                    <MSEED_SignalPlot
+                        $plot_data  = {this.$signal_plot_data}
+                        $loading    = {this.$plots_loading}
+                    />
             },
             {
                 key: 'spectrogram',
                 label: 'Spectrogram',
-                element: 
-                <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
-                >
-                    <D3Heatmap
-                        $data   = {this.$spectrogram_heatmap_data}
-                        $x_axis = {this.$spectrogram_time_axis}
-                        $y_axis = {this.$spectrogram_frequency_axis}
-                        on_click = {this.on_spectrogram_click}
-                        $title   = {this.$spectrogram_title}
-                        y_axis_label = 'Frequency (Hz)'
-                        x_axis_label = 'Time (UTC)'
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                    />
-                </ContainerWithOverlay>,
+                element:
+                <MSEED_Spectrogram
+                    $data    = {this.$spectrogram_plot_data}
+                    $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
+                    $loading = {this.$plots_loading}
+                />
+                //  <SettingsContainer
+                //     settings_entries = {[]}
+                // >
+                //     <ContainerWithOverlay
+                //         $is_loading     = {this.$plots_loading}
+                //         uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                //     >
+                //         <D3Heatmap
+                //             $data   = {this.$spectrogram_heatmap_data}
+                //             $x_axis = {this.$spectrogram_time_axis}
+                //             $y_axis = {this.$spectrogram_frequency_axis}
+                //             on_click = {this.on_spectrogram_click}
+                //             $title   = {this.$spectrogram_title}
+                //             y_axis_label = 'Frequency (Hz)'
+                //             x_axis_label = 'Time (UTC)'
+                //             enable_hover = {false}
+                //             enable_zoom  = {false}
+                //         />
+                //     </ContainerWithOverlay>
+                // </SettingsContainer>,
             },
             {
                 key: 'mps',
                 label: 'Modulation Power Spectrum',
-                element:
-                <ContainerWithOverlay
-                    $is_loading     = {this.$plots_loading}
-                    loading_message = 'Select a MSEED channel and time to plot here.'
+                element: <SettingsContainer
+                    settings_entries = {[]}
                 >
-                    <D3Heatmap
-                        $data   = {this.$mps_heatmap_data}
-                        $x_axis = {this.$mps_temporal_axis}
-                        $y_axis = {this.$mps_spectral_axis}
-                        on_click = {this.on_mps_click}
-                        $title   = {this.$mps_title}
-                        y_axis_label = 'Spectral Modulation (1/Hz)'
-                        x_axis_label = 'Temporal Modulation (Hz)'
-                        x_axis_label_formatter = {this.format_mps_axis_value}
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                        colormap     = 'magma'
-                    />
-                </ContainerWithOverlay>,
+                    <ContainerWithOverlay
+                        $is_loading     = {this.$plots_loading}
+                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
+                    >
+                        <D3Heatmap
+                            $data   = {this.$mps_heatmap_data}
+                            $x_axis = {this.$mps_temporal_axis}
+                            $y_axis = {this.$mps_spectral_axis}
+                            on_click = {this.on_mps_click}
+                            $title   = {this.$mps_title}
+                            y_axis_label = 'Spectral Modulation (1/Hz)'
+                            x_axis_label = 'Temporal Modulation (Hz)'
+                            x_axis_label_formatter = {this.format_mps_axis_value}
+                            enable_hover = {false}
+                            enable_zoom  = {false}
+                            colormap     = 'magma'
+                        />
+                    </ContainerWithOverlay>
+                </SettingsContainer>,
             },
             {
                 key: 'map',
@@ -126,6 +144,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             }}>
                 <MSEED_Heatmap 
                     $mseed_meta = {this.$mseed_meta} 
+                    $mseeds     = {this.props.$mseeds}
                     $inference  = {this.props.$inference}
                     $events     = {this.props.$events}
                     on_click    = {this.on_heatmap_item_select}
@@ -162,6 +181,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             return;
         }
         this.pyodide = pyo;
+        this.$pyodide.value = pyo;
     }
 
 
@@ -330,12 +350,16 @@ export class MainContent extends preact.Component<MainContentProps> {
     $plots_loading: Signal<boolean> = new Signal(false)
 
     /** Currently active data in the 1D signal plot */
-    $signal_plot_data: Signal<SignalPlotData | null> = new Signal(null)
+    $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
+
+    /** Currently active data in the spectrogram plot */
+    $spectrogram_plot_data: Signal<MSEED_SpectrogramData | null> = new Signal(null)
 
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
 
-    pyodide:IPyodide|undefined;
+    pyodide: IPyodide|undefined;
+    $pyodide: Signal<IPyodide|undefined> = new Signal(undefined)
 
     /** Called when user clicks on an item in the heatmap.
      *  Reading the corresponding segment from the MSEED file and forwarding
@@ -371,15 +395,15 @@ export class MainContent extends preact.Component<MainContentProps> {
             }
 
             const code: string = combine_mseed_codes(mseed.meta)
-            const spectrogram_promise:Promise<SpectrogramData|Error> =
-                this.pyodide.plot_spectrogram(
-                    data,
-                    i0,
-                    i1,
-                    mseed.meta.starttime,
-                    mseed.meta.samplerate,
-                    code,
-                )
+            // const spectrogram_promise:Promise<SpectrogramData|Error> =
+            //     this.pyodide.plot_spectrogram(
+            //         data,
+            //         i0,
+            //         i1,
+            //         mseed.meta.starttime,
+            //         mseed.meta.samplerate,
+            //         code,
+            //     )
             const mps_promise:Promise<SpectrogramData|Error> =
                 this.pyodide.plot_modulation_power_spectrum(
                     data,
@@ -392,40 +416,46 @@ export class MainContent extends preact.Component<MainContentProps> {
 
             this.$signal_plot_data.value = {
                 data,
-                i0,
-                i1,
+                slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
                 title:          `${code} - Signal`,
+            }
+            this.$spectrogram_plot_data.value = {
+                signal:         data,
+                slice_indices:  [i0, i1],
+                start_time:     mseed.meta.starttime,
+                fs:             mseed.meta.samplerate,
+                code:           code,
             }
             this.$audiodata.value = { 
                 data:       await slice_and_prepare_audio(data, i0, i1, mseed.meta.samplerate, this.pyodide!), 
                 samplerate: 8000,
             }
 
-            const spectrogram_data:SpectrogramData|Error = await spectrogram_promise
-            if(spectrogram_data instanceof Error) {
-                console.error(
-                    `Error computing spectrogram: ${spectrogram_data.message}`
-                )
-                return;
-            }
-            const spectrogram_start_s:number =
-                mseed.meta.starttime.getTime() / 1000
-                + (i0 / mseed.meta.samplerate)
+            // const spectrogram_data:SpectrogramData|Error = await spectrogram_promise
+            // if(spectrogram_data instanceof Error) {
+            //     console.error(
+            //         `Error computing spectrogram: ${spectrogram_data.message}`
+            //     )
+            //     return;
+            // }
+            // const spectrogram_start_s:number =
+            //     mseed.meta.starttime.getTime() / 1000
+            //     + (i0 / mseed.meta.samplerate)
 
-            this.$spectrogram_time_axis.value = Array.from(
-                spectrogram_data.t_axis,
-                t => spectrogram_start_s + t
-            )
-            this.$spectrogram_frequency_axis.value = Array.from(
-                spectrogram_data.f_axis,
-                f => format_frequency_label(f)
-            )
-            this.$spectrogram_title.value = `${code} - Spectrogram`
+            // this.$spectrogram_time_axis.value = Array.from(
+            //     spectrogram_data.t_axis,
+            //     t => spectrogram_start_s + t
+            // )
+            // this.$spectrogram_frequency_axis.value = Array.from(
+            //     spectrogram_data.f_axis,
+            //     f => format_frequency_label(f)
+            // )
+            // this.$spectrogram_title.value = `${code} - Spectrogram`
 
-            this.$spectrogram_heatmap_data.value = 
-                spectrogram_to_heatmap(spectrogram_data)
+            // this.$spectrogram_heatmap_data.value = 
+            //     spectrogram_to_heatmap(spectrogram_data)
 
             const mps_data:SpectrogramData|Error = await mps_promise
             if(mps_data instanceof Error) {
@@ -450,12 +480,12 @@ export class MainContent extends preact.Component<MainContentProps> {
     }
 
 
-    $spectrogram_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
-    $spectrogram_time_axis:      Signal<number[]>          = new Signal([])
-    $spectrogram_frequency_axis: Signal<string[]>          = new Signal(['0'])
-    $spectrogram_title:          Signal<string>            = new Signal('')
+    // $spectrogram_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
+    // $spectrogram_time_axis:      Signal<number[]>          = new Signal([])
+    // $spectrogram_frequency_axis: Signal<string[]>          = new Signal(['0'])
+    // $spectrogram_title:          Signal<string>            = new Signal('')
 
-    on_spectrogram_click = (_selected:number) => {}
+    // on_spectrogram_click = (_selected:number) => {}
 
     $mps_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
     $mps_temporal_axis:  Signal<number[]>          = new Signal([])

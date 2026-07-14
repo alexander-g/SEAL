@@ -32,13 +32,11 @@ export interface IPyodide {
     ): Promise<File|Error>;
 
     /** Compute a 1D time series spectrogram and return data. */
-    plot_spectrogram(
+    create_spectrogram_for_visualization(
         data: Float32Array,
         i0:   number,
         i1:   number,
-        start_time:     Date,
         sample_rate_hz: number,
-        title:          string,
     ): Promise<SpectrogramData|Error>;
 
     /** Compute modulation power spectrum data. */
@@ -80,19 +78,17 @@ export class PyodideInWorker implements IPyodide {
         return internal.plot_data(data, i0, i1, start_time, sample_rate_hz, title)
     }
 
-    async plot_spectrogram(
+    async create_spectrogram_for_visualization(
         data:Float32Array,
         i0:number,
         i1:number,
-        start_time:Date,
         sample_rate_hz:number,
-        title:string,
     ): Promise<SpectrogramData|Error> {
         const internal:IPyodide|Error = await this.readypromise;
         if(internal instanceof Error)
             return internal as Error;
 
-        return internal.plot_spectrogram(data, i0, i1, start_time, sample_rate_hz, title)
+        return internal.create_spectrogram_for_visualization(data, i0, i1, sample_rate_hz)
     }
 
     async plot_modulation_power_spectrum(
@@ -163,13 +159,11 @@ export class Pyodide implements IPyodide {
         }
     }
 
-    async plot_spectrogram(
+    async create_spectrogram_for_visualization(
         data: Float32Array,
         i0:   number,
         i1:   number,
-        start_time:     Date,
         sample_rate_hz: number,
-        title:          string,
     ): Promise<SpectrogramData|Error> {
 
         const plot_fn:(...x:unknown[]) => void = 
@@ -387,18 +381,16 @@ class PyodideToWorkerInterface implements IPyodide {
         data: Float32Array,
         i0:number,
         i1:number,
-        start_time:Date,
         sample_rate_hz:number,
-        title:string,
     ): Promise<SpectrogramData|Error> {
         const command:WorkerSpectrogramCommand = {
             command: 'plot-spectrogram',
             data:    data,
             i0,
             i1,
-            start_time,
+            start_time: new Date,
             sample_rate_hz,
-            title,
+            title: 'REMOVE',
             uuid: self.crypto.randomUUID()
         }
         const promise:Promise<SpectrogramData|Error> = 
@@ -433,9 +425,9 @@ class PyodideToWorkerInterface implements IPyodide {
         return this._plot(...x)
     }
 
-    plot_spectrogram(
-        ...x:Parameters<IPyodide['plot_spectrogram']>
-    ): ReturnType<IPyodide['plot_spectrogram']> {
+    create_spectrogram_for_visualization(
+        ...x:Parameters<IPyodide['create_spectrogram_for_visualization']>
+    ): ReturnType<IPyodide['create_spectrogram_for_visualization']> {
         return this._spectrogram_data(...x)
     }
 
