@@ -14,9 +14,12 @@ import * as signalprocessing from "../lib/signal-processing.ts"
 
 
 
-export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'> & {
+export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'|'title'> & {
     /** Indices to slice the full signal */
     slice_indices: [number, number]
+
+    /** Network, station, channel code */
+    code: string
 
     /** Instrument response for this channel */
     response?: Response
@@ -75,7 +78,10 @@ export class MSEED_SignalPlot extends preact.Component<{
         const f_max: number = this.settings.$bandpass_fmax.value
         data = signalprocessing.bandpass_filter(data, fs, f_min, f_max)
 
-        return {...plot_data, data, x_domain, y_axis_label}
+        const filter_str:string = format_filter(f_min, f_max, fs)
+        const title = `${plot_data.code} - Signal ${filter_str}`
+
+        return {...plot_data, data, x_domain, y_axis_label, title}
     })
 
 
@@ -129,5 +135,21 @@ function remove_sensitivity(signal:Float32Array, response:Response): Float32Arra
     for(let i: number = 0; i < signal.length; i++)
         output[i] = signal[i]! / response.sensitivity
     return output;
+}
+
+
+
+function format_filter(f_min: number, f_max: number, fs: number): string {
+    const f_min_active:boolean = (f_min > 0)
+    const f_max_active:boolean = (f_max < fs/2)
+
+    if(f_min_active && f_max_active)
+        return `(Bandpass ${f_min.toFixed(0)} - ${f_max.toFixed(0)} Hz)`
+    else if(f_min_active)
+        return `(Highpass ${f_min.toFixed(0)} Hz)`
+    else if(f_max_active)
+        return `(Lowpass ${f_max.toFixed(0)} Hz)`
+    else
+        return ''
 }
 

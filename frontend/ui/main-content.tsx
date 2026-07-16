@@ -411,7 +411,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
-                title:          `${code} - Signal`,
+                code:           code,
                 response:       channel?.response,
             }
             this.$spectrogram_plot_data.value = {
