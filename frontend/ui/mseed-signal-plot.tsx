@@ -56,8 +56,11 @@ export class MSEED_SignalPlot extends preact.Component<{
         if(plot_data == null)
             return null
 
+        const fs: number = plot_data.sample_rate_hz
         let data: Float32Array = plot_data.data
-        const [i0, i1] = plot_data.slice_indices
+        const [i0, _i1] = plot_data.slice_indices
+        const i1:number = i0 + this.settings.$slice_length.value * fs
+
         data = data.slice(i0, i1)
         if(data.length < 2)
             return null
@@ -68,7 +71,7 @@ export class MSEED_SignalPlot extends preact.Component<{
             y_axis_label = `Amplitude (${plot_data.response.input_unit})`
         }
 
-        const fs: number = plot_data.sample_rate_hz
+        
         const x_domain: [Date, Date]|Error = 
             compute_time_domain(plot_data.start_time, i0, i1, fs)
         if(x_domain instanceof Error)
@@ -107,6 +110,9 @@ export class MSEED_SignalPlotSettings {
     /** Upper end of the bandpass filter to apply */
     $bandpass_fmax = new Signal<number>(99999);
 
+    /** How much of the signal to show */
+    $slice_length = new Signal<number>(300)
+
 
     to_component_settings_entries(): SettingsEntry[] {
         return [
@@ -121,6 +127,12 @@ export class MSEED_SignalPlotSettings {
                 label:   'Bandpass upper bound (Hz)', 
                 step:    1, 
                 $signal: this.$bandpass_fmax
+            },
+            {
+                type:    'number',  
+                label:   'Signal length', 
+                step:    10, 
+                $signal: this.$slice_length
             },
         ]
     }

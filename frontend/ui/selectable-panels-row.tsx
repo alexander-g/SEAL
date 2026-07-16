@@ -78,7 +78,7 @@ export class SelectablePanelsRow extends preact.Component<SelectablePanelsRowPro
                             key   = {item.key}
                             style = {this.get_button_style(item.key)}
                             type  = 'button'
-                            onClick = {() => this.select_panel(item.key)}
+                            onClick = {() => this.on_button(item.key)}
                             aria-pressed = {this.is_visible(item.key)}
                         >
                             {item.label}
@@ -135,13 +135,21 @@ export class SelectablePanelsRow extends preact.Component<SelectablePanelsRowPro
         this.resize_observer?.disconnect()
     }
 
-    /** Promote a panel */
-    select_panel(key:string): void {
-        // do nothing if already selected
-        if(this.is_visible(key))
-            return;
+    /** Promote or deselect a panel */
+    on_button(key:string): void {
+        const selected_keys: string[] =
+            this.$selected_items.value.map(item => item.key)
 
-        this.$item_preference.value = 
+        if(selected_keys.includes(key)) {
+            if(selected_keys.length <= 1)
+                return
+
+            this.$item_preference.value =
+                remove_preference_item(this.$item_preference.value, key)
+            return
+        }
+
+        this.$item_preference.value =
             set_new_preference(this.$item_preference.value, key)
     }
 
@@ -190,11 +198,16 @@ export function select_items_by_preference(
 /** Move an item to the start of a list */
 export function set_new_preference(items:readonly string[], new_item:string): string[] {
     const result:string[] = [...items]
-    const index:number = result.indexOf(new_item);
+    const index:number = result.indexOf(new_item)
     if(index !== -1)
-        result.splice(index, 1);
+        result.splice(index, 1)
 
     return [new_item, ...result]
+}
+
+/** Remove an item from preference list. */
+export function remove_preference_item(items:readonly string[], key:string): string[] {
+    return items.filter(item => item !== key)
 }
 
 /** Normalize initial preference to existing item keys. */
@@ -203,16 +216,16 @@ function get_initial_preference(
     initial_preference: string[]|undefined,
 ): string[] {
     const ordered_keys: string[] = items.map(item => item.key)
+    const default_selected: string[] = ordered_keys.slice(0, 3)
     if(initial_preference == null)
-        return ordered_keys
+        return default_selected
 
     const filtered: string[] = initial_preference
         .filter(key => ordered_keys.includes(key))
+    if(filtered.length === 0)
+        return default_selected
 
-    const missing: string[] = ordered_keys
-        .filter(key => !filtered.includes(key))
-
-    return [...filtered, ...missing]
+    return filtered
 }
 
 /** Return shared style for panel-like buttons. */

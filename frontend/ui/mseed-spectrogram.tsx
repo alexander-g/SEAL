@@ -84,9 +84,11 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             console.log('TODO: reset spectrogram')
             return;
         }
-            
+        
 
-        const [i0, i1] = data.slice_indices
+        const [i0, _i1] = data.slice_indices
+        const i1:number = i0 + this.settings.$slice_length.value * data.fs
+
         const spectrogram_data: SpectrogramData|Error =
             await this.props.$pyodide.value.create_spectrogram_for_visualization(
                 data.signal,
@@ -150,6 +152,9 @@ export class MSEED_SpectrogramHeatmapSettings {
     /** Maximum frequency to show on the Y axis */
     $f_max = new Signal<number>(99999)
 
+    /** How much of the signal to show */
+    $slice_length = new Signal<number>(300)
+
     to_component_settings_entries(): SettingsEntry[] {
         return [
             {
@@ -163,6 +168,12 @@ export class MSEED_SpectrogramHeatmapSettings {
                 label:   'Maximum frequency (Hz)', 
                 step:    1, 
                 $signal: this.$f_max
+            },
+            {
+                type:    'number',  
+                label:   'Signal length', 
+                step:    10, 
+                $signal: this.$slice_length
             },
         ]
     }
