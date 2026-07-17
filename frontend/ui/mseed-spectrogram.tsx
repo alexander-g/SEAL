@@ -84,9 +84,11 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             console.log('TODO: reset spectrogram')
             return;
         }
-            
+        
 
-        const [i0, i1] = data.slice_indices
+        const [i0, _i1] = data.slice_indices
+        const i1:number = i0 + this.settings.$slice_length.value * data.fs
+
         const spectrogram_data: SpectrogramData|Error =
             await this.props.$pyodide.value.create_spectrogram_for_visualization(
                 data.signal,
@@ -150,6 +152,9 @@ export class MSEED_SpectrogramHeatmapSettings {
     /** Maximum frequency to show on the Y axis */
     $f_max = new Signal<number>(99999)
 
+    /** How much of the signal to show */
+    $slice_length = new Signal<number>(300)
+
     to_component_settings_entries(): SettingsEntry[] {
         return [
             {
@@ -163,6 +168,12 @@ export class MSEED_SpectrogramHeatmapSettings {
                 label:   'Maximum frequency (Hz)', 
                 step:    1, 
                 $signal: this.$f_max
+            },
+            {
+                type:    'number',  
+                label:   'Signal length', 
+                step:    10, 
+                $signal: this.$slice_length
             },
         ]
     }
@@ -183,17 +194,14 @@ function spectrogram_to_heatmap(
     if(rows == 0 || cols == 0 || rows != f_axis.length)
         return output
 
-
     let index:number = 0
-    let output_row:number = 0
+    let min_power:number = Number.POSITIVE_INFINITY
+    let max_power:number = Number.NEGATIVE_INFINITY
     for(let row:number = 0; row < rows; row++) {
-
         const frequency_hz:number = f_axis[row] ?? 0
-        if(f_min != null && frequency_hz < f_min) {
-            index += cols
-            continue
-        }
-        if(f_max != null && frequency_hz > f_max) {
+        const is_below_min:boolean = f_min != null && frequency_hz < f_min
+        const is_above_max:boolean = f_max != null && frequency_hz > f_max
+        if(is_below_min || is_above_max) {
             index += cols
             continue
         }
@@ -201,11 +209,38 @@ function spectrogram_to_heatmap(
         for(let col:number = 0; col < cols; col++) {
             const power:number = data.power[index] ?? 0
             index += 1
+            if(power < min_power)
+                min_power = power
+            if(power > max_power)
+                max_power = power
+        }
+    }
+
+    if(!Number.isFinite(min_power) || !Number.isFinite(max_power))
+        return output
+
+    const power_range:number = Math.max(max_power - min_power, 1e-12)
+
+    index = 0
+    let output_row:number = 0
+    for(let row:number = 0; row < rows; row++) {
+        const frequency_hz:number = f_axis[row] ?? 0
+        const is_below_min:boolean = f_min != null && frequency_hz < f_min
+        const is_above_max:boolean = f_max != null && frequency_hz > f_max
+        if(is_below_min || is_above_max) {
+            index += cols
+            continue
+        }
+
+        for(let col:number = 0; col < cols; col++) {
+            const power:number = data.power[index] ?? 0
+            index += 1
+            const scaled_power:number = (power - min_power) / power_range
 
             output.push({
                 x: col,
                 y: output_row,
-                color: power,
+                color: scaled_power,
             })
         }
 

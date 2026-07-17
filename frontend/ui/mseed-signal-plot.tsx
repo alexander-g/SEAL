@@ -6,16 +6,23 @@ import {
     compute_time_domain,
     type SignalPlotData,
 } from "../ui/d3-signal-plot.tsx"
-import { ContainerWithOverlay }                  from "../ui/plot-image.tsx"
+import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
+import type { Response } from "../lib/station-xml.ts"
 import * as signalprocessing from "../lib/signal-processing.ts"
 
 
 
 
-export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'> & {
+export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'|'title'> & {
     /** Indices to slice the full signal */
     slice_indices: [number, number]
+
+    /** Network, station, channel code */
+    code: string
+
+    /** Instrument response for this channel */
+    response?: Response
 }
 
 
@@ -49,11 +56,22 @@ export class MSEED_SignalPlot extends preact.Component<{
         if(plot_data == null)
             return null
 
+        const fs: number = plot_data.sample_rate_hz
         let data: Float32Array = plot_data.data
-        const [i0, i1] = plot_data.slice_indices
-        data = data.slice(i0, i1)
+        const [i0, _i1] = plot_data.slice_indices
+        const i1:number = i0 + this.settings.$slice_length.value * fs
 
-        const fs: number    = plot_data.sample_rate_hz
+        data = data.slice(i0, i1)
+        if(data.length < 2)
+            return null
+
+        let y_axis_label:string|undefined = undefined
+        if(plot_data.response != undefined) {
+            data = remove_sensitivity(data, plot_data.response)
+            y_axis_label = `Amplitude (${plot_data.response.input_unit})`
+        }
+
+        
         const x_domain: [Date, Date]|Error = 
             compute_time_domain(plot_data.start_time, i0, i1, fs)
         if(x_domain instanceof Error)
@@ -63,7 +81,10 @@ export class MSEED_SignalPlot extends preact.Component<{
         const f_max: number = this.settings.$bandpass_fmax.value
         data = signalprocessing.bandpass_filter(data, fs, f_min, f_max)
 
-        return {...plot_data, data, x_domain}
+        const filter_str:string = format_filter(f_min, f_max, fs)
+        const title = `${plot_data.code} - Signal ${filter_str}`
+
+        return {...plot_data, data, x_domain, y_axis_label, title}
     })
 
 
@@ -89,6 +110,9 @@ export class MSEED_SignalPlotSettings {
     /** Upper end of the bandpass filter to apply */
     $bandpass_fmax = new Signal<number>(99999);
 
+    /** How much of the signal to show */
+    $slice_length = new Signal<number>(300)
+
 
     to_component_settings_entries(): SettingsEntry[] {
         return [
@@ -104,7 +128,40 @@ export class MSEED_SignalPlotSettings {
                 step:    1, 
                 $signal: this.$bandpass_fmax
             },
+            {
+                type:    'number',  
+                label:   'Signal length', 
+                step:    10, 
+                $signal: this.$slice_length
+            },
         ]
     }
+}
+
+
+
+
+export
+function remove_sensitivity(signal:Float32Array, response:Response): Float32Array {
+    const output: Float32Array = new Float32Array(signal.length)
+    for(let i: number = 0; i < signal.length; i++)
+        output[i] = signal[i]! / response.sensitivity
+    return output;
+}
+
+
+
+function format_filter(f_min: number, f_max: number, fs: number): string {
+    const f_min_active:boolean = (f_min > 0)
+    const f_max_active:boolean = (f_max < fs/2)
+
+    if(f_min_active && f_max_active)
+        return `(Bandpass ${f_min.toFixed(0)} - ${f_max.toFixed(0)} Hz)`
+    else if(f_min_active)
+        return `(Highpass ${f_min.toFixed(0)} Hz)`
+    else if(f_max_active)
+        return `(Lowpass ${f_max.toFixed(0)} Hz)`
+    else
+        return ''
 }
 
