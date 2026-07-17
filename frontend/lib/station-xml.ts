@@ -288,10 +288,13 @@ function parse_unit_name(
 
 
 function parse_element_text(element:XmlElement): string|Error {
-    const first_child: XmlNode|undefined = element.children[0]
-    if(element.children.length != 1 || first_child == undefined ||
-       first_child.type != 'text')
+    const texts: string[] = []
+    for (const child of element.children) {
+        if (child.type == 'text')
+            texts.push(child.text)
+    }
+    const value: string = texts.join('').trim()
+    if (value.length === 0)
         return new Error(`<${element.name.local}> element misformed.`)
-
-    return first_child.text
+    return value
 }

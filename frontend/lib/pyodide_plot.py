@@ -500,7 +500,6 @@ def create_modulation_power_spectrum_for_visualization(
 
     mps_log = 10.0 * np.log10(np.maximum(mps.data, 1e-12))
     inverted: npt.NDArray[np.float64] = mps_log.max() - mps_log
-    print('DEBUG MPS range: ', inverted.min(), inverted.max())
     normalized: npt.NDArray[np.float32] = scale_spectrogram_to_range(inverted)
 
     return {
