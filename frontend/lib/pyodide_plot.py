@@ -288,7 +288,8 @@ def create_modulation_power_spectrum2(waveform:np.ndarray, fs:float):
     b, a     = scipy.signal.butter(3, [2, 8], 'bandpass', fs = fs)
     waveform = scipy.signal.lfilter(b, a, waveform)
     spectrogramdata, f_axis, t_axis = spectrogram_as_in_biosound(waveform, fs, f_min=2, f_max=8)
-    mps = mps_as_in_biosound(spectrogramdata, f_axis, t_axis, windowlength=5.12/2)
+    #mps = mps_as_in_biosound(spectrogramdata, f_axis, t_axis, windowlength=5.12/2)
+    mps = mps_as_in_biosound(spectrogramdata, f_axis, t_axis, windowlength=15)
 
     wf_mask = (mps.spectral_axis >= 0)
     wt_mask = (mps.temporal_axis >= 0)
@@ -499,6 +500,7 @@ def create_modulation_power_spectrum_for_visualization(
 
     mps_log = 10.0 * np.log10(np.maximum(mps.data, 1e-12))
     inverted: npt.NDArray[np.float64] = mps_log.max() - mps_log
+    print('DEBUG MPS range: ', inverted.min(), inverted.max())
     normalized: npt.NDArray[np.float32] = scale_spectrogram_to_range(inverted)
 
     return {
