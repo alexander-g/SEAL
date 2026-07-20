@@ -45,7 +45,7 @@ if(RUNNING_EMSCRIPTEN)
             -sSINGLE_FILE=1 
             -sEXPORT_NAME="wasm_mseed" 
             -sEXPORTED_RUNTIME_METHODS=addFunction,Asyncify
-            -sEXPORTED_FUNCTIONS=_read_mseed,_malloc,_free
+            -sEXPORTED_FUNCTIONS=_read_mseed,_write_mseed,_malloc,_free
             -sENVIRONMENT=web 
             -sALLOW_TABLE_GROWTH 
             -sALLOW_MEMORY_GROWTH=1
