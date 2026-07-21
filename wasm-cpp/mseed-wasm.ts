@@ -19,6 +19,19 @@ type TremorWASM_Module = {
         samplebuffer_size: pointer,
     ) => number;
 
+    _write_mseed: (
+        samples:        pointer,
+        samplecount:    bigint,
+        samplerate_f64: number,
+        starttime_u64:  bigint,
+        code:           pointer,
+        codelength:     bigint,
+        recordlength:   number,
+        encoding:       number,
+        out_buffer_ptr: pointer,
+        out_length_ptr: pointer,
+    ) => number;
+
     _malloc: (nbytes:number) => pointer,
     _free:   (ptr:pointer) => void,
 
@@ -46,6 +59,15 @@ type MSEED_Meta = {
 type MSEED_ReadResult = {
     data: Float32Array|null;
     meta: MSEED_Meta;
+}
+
+export type MSEED_WriteOptions = {
+    code:          string
+    samplerate:    number
+    starttime:     Date
+    recordlength?: number
+    encoding?:     number
+    filename?:     string
 }
 
 /** Configure wasm memory guardrails and reinit behavior. */
@@ -86,24 +108,6 @@ export class TremorWasm {
             await this._read_internal(file, nsamplestoread)
         
         return readresult;
-        
-        // if(
-        //     readresult instanceof Error &&
-        //     this.#is_allocation_error(readresult)
-        // ) {
-        //     const retry_error:Error|null =
-        //         await this.#reinitialize_wasm_instance()
-        //     if(retry_error instanceof Error)
-        //         return retry_error
-
-        //     const retry_result:MSEED_ReadResult|Error =
-        //         await this._read_internal(file, nsamplestoread)
-        //     await this.#maybe_reinitialize_if_needed()
-        //     return retry_result
-        // }
-
-        // await this.#maybe_reinitialize_if_needed()
-        // return readresult
     }
 
     private async _read_internal(
@@ -215,6 +219,95 @@ export class TremorWasm {
         return (readresult instanceof Error)? readresult : readresult.data!;
     }
 
+    /** Write MiniSEED data and return a File. */
+    async write_mseed(
+        data:    Float32Array,
+        options: MSEED_WriteOptions
+    ): Promise<File|Error> {
+        const reinit_error:Error|null =
+            await this.#maybe_reinitialize_if_needed()
+        if(reinit_error instanceof Error)
+            return reinit_error
+
+        try {
+            const samplecount:number = data.length
+            if(samplecount <= 0)
+                return new Error('No samples to write')
+
+            const code:string = options.code.trim()
+            if(code.length == 0)
+                return new Error('Missing MSEED code')
+
+            const samples_p:pointer =
+                this.#malloc(samplecount * Float32Array.BYTES_PER_ELEMENT)
+            const sample_u8:Uint8Array =
+                new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+            this.wasm.HEAPU8.set(sample_u8, samples_p)
+
+            const code_bytes:Uint8Array = new TextEncoder().encode(code)
+            const code_p:pointer = this.#malloc(code_bytes.length)
+            this.wasm.HEAPU8.set(code_bytes, code_p)
+
+            const output_buffer_ptr_p:pointer = this.#malloc(4)
+            const output_length_p:pointer = this.#malloc(8)
+
+            const recordlength:number = options.recordlength ?? 4096
+            const encoding:number = options.encoding ?? 4
+            const starttime_u64:bigint = BigInt(options.starttime.getTime()) * 1000000n
+
+            const rc:number = this.wasm._write_mseed(
+                samples_p,
+                BigInt(samplecount),
+                options.samplerate,
+                starttime_u64,
+                code_p,
+                BigInt(code_bytes.length),
+                recordlength,
+                encoding,
+                output_buffer_ptr_p,
+                output_length_p,
+            )
+            if(rc != 0)
+                return new Error(`Could not write mseed. (${rc})`)
+
+            const output_buffer_ptr:Uint32Array = new Uint32Array(
+                this.wasm.HEAPU8.slice(
+                    output_buffer_ptr_p,
+                    output_buffer_ptr_p + 4
+                ).buffer
+            )
+            const output_length_u64:BigUint64Array = new BigUint64Array(
+                this.wasm.HEAPU8.slice(
+                    output_length_p,
+                    output_length_p + 8
+                ).buffer
+            )
+
+            const output_ptr_number:number = output_buffer_ptr[0] ?? 0
+            const output_length:number = Number(output_length_u64[0])
+            if(output_length <= 0 || output_ptr_number <= 0)
+                return new Error('No output written')
+
+            const output_data:Uint8Array = this.wasm.HEAPU8.slice(
+                output_ptr_number,
+                output_ptr_number + output_length
+            )
+            this.wasm._free(output_ptr_number)
+
+            const filename:string =
+                options.filename ?? `${code.replace(/\s+/g, '_')}.mseed`
+            return new File(
+                [output_data.buffer as ArrayBuffer], 
+                filename, 
+                {type: 'application/octet-stream'}
+            )
+        } catch(e) {
+            return (e instanceof Error) ? e : new Error(String(e))
+        } finally {
+            this.#free_allocated_buffers()
+        }
+    }
+
 
 
     /** Pointers to buffers that still need to be freed. */
@@ -236,12 +329,6 @@ export class TremorWasm {
     #get_heap_bytes(): number {
         return this.wasm.HEAPU8.buffer.byteLength
     }
-
-    // /** Check if an error looks like a wasm allocation failure. */
-    // #is_allocation_error(error:Error): boolean {
-    //     const message:string = error.message.toLowerCase()
-    //     return message.includes('alloc') || message.includes('memory')
-    // }
 
     /** Reinitialize wasm instance when heap exceeds threshold. */
     async #maybe_reinitialize_if_needed(): Promise<Error|null> {

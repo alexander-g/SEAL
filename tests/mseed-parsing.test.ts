@@ -108,3 +108,66 @@ Deno.test('mseed-reading', async (t:Deno.TestContext) => {
     })
 })
 
+Deno.test('mseed-writing', async (t:Deno.TestContext) => {
+    const tremorwasm = await initialize()
+    const starttime:Date = new Date(Date.UTC(2020, 0, 1))
+
+    await t.step('expected-use', async () => {
+        const data:Float32Array = new Float32Array(1000)
+        for(let i:number = 0; i < data.length; i++)
+            data[i] = Math.sin(i / 10)
+
+        const file:File|Error = await tremorwasm.write_mseed(data, {
+            code: 'XX.TEST..BHZ',
+            samplerate: 20,
+            starttime: starttime,
+        })
+        assert(!(file instanceof Error))
+        assert(file.size > 0)
+
+        const meta = await tremorwasm.read_metadata(file)
+        assert(!(meta instanceof Error))
+        assert(meta.nsamples == data.length)
+        assert(meta.samplerate == 20)
+        assert(meta.code == 'XX.TEST..BHZ')
+
+        const meta2 = await read_mseed_metadata(file)
+        assert(!(meta2 instanceof Error))
+        assert(meta2.samplerate == 20)
+        assert(meta2.network  == 'XX')
+        assert(meta2.station  == 'TEST')
+        assert(meta2.location == '')
+        assert(meta2.channel  == 'BHZ')
+
+
+        const readresult = await tremorwasm.read_data(file)
+        assert(!(readresult instanceof Error))
+        assert(readresult.length == data.length)
+        for(let i:number = 0; i < data.length; i++)
+            assert( Math.abs(data[i]! - readresult[i]!) < 0.001 )
+    })
+
+    await t.step('failure-case', async () => {
+        const data:Float32Array = new Float32Array([1, 2, 3])
+        const file:File|Error = await tremorwasm.write_mseed(data, {
+            code: '',
+            samplerate: 1,
+            starttime: starttime,
+        })
+        assert(file instanceof Error)
+    })
+
+    await t.step('edge-case', async () => {
+        const data:Float32Array = new Float32Array([42])
+        const file:File|Error = await tremorwasm.write_mseed(data, {
+            code: 'YY.EDGE..HHZ',
+            samplerate: 5,
+            starttime: starttime,
+        })
+        assert(!(file instanceof Error))
+
+        const meta = await tremorwasm.read_metadata(file)
+        assert(!(meta instanceof Error))
+        assert(meta.nsamples == 1)
+    })
+})

@@ -1,8 +1,12 @@
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <format>
 #include <print>
+#include <string>
+#include <vector>
 
 #include <libmseed.h>
 
@@ -17,9 +21,62 @@
 #define INVALID_NUMBER_OF_SEGMENTS  -205
 #define SID2NSLC_FAILED             -206;
 #define SAMPLETYPE_NOT_IMPLEMENTED  -207;
+#define MSEED_WRITE_FAILED          -301;
+#define MSEED_CODE_PARSE_FAILED     -302;
+#define MSEED_INVALID_SAMPLE_COUNT  -303;
+#define MSEED_ALLOC_FAILED          -304;
+#define MSEED_ENCODING_NOT_IMPLEMENTED -305;
+#define MSEED_RECORD_INIT_FAILED    -306;
 
 
 #define float64_t double
+
+/** Parse NSLC code into components. */
+static bool split_mseed_code(
+    const std::string& code,
+    std::string* network,
+    std::string* station,
+    std::string* location,
+    std::string* channel
+) {
+    const size_t first = code.find('.');
+    if(first == std::string::npos)
+        return false;
+    const size_t second = code.find('.', first + 1);
+    if(second == std::string::npos)
+        return false;
+    const size_t third = code.find('.', second + 1);
+    if(third == std::string::npos)
+        return false;
+    if(code.find('.', third + 1) != std::string::npos)
+        return false;
+
+    *network = code.substr(0, first);
+    *station = code.substr(first + 1, second - first - 1);
+    *location = code.substr(second + 1, third - second - 1);
+    *channel = code.substr(third + 1);
+
+    if(network->empty() || station->empty() || channel->empty())
+        return false;
+
+    return true;
+}
+
+/** Append a packed record to an output buffer. */
+static void append_mseed_record(
+    char* record,
+    int reclen,
+    void* handlerdata
+) {
+    std::vector<uint8_t>* output =
+        static_cast<std::vector<uint8_t>*>(handlerdata);
+    if(output != nullptr)
+        output->insert(
+            output->end(),
+            reinterpret_cast<uint8_t*>(record),
+            reinterpret_cast<uint8_t*>(record) + reclen
+        );
+}
 
 
 
@@ -108,7 +165,7 @@ int32_t read_mseed(
     *nsamples   = segment->samplecnt;
     *samplerate = segment->samprate;
 
-    char network[8], station[8], location[8], channel[8];
+    char network[8] = {0}, station[8] = {0}, location[8] = {0}, channel[8] = {0};
     const int rc = ms_sid2nslc_n(
         trace->sid, 
         network, 
@@ -150,6 +207,117 @@ int32_t read_mseed(
             return SAMPLETYPE_NOT_IMPLEMENTED;
         }
     }
+
+    return OK;
+}
+
+/** Write MiniSEED data to a heap buffer. */
+int32_t write_mseed(
+    const float* samples,
+    uint64_t     samplecount,
+    float64_t    samplerate,
+    uint64_t     starttime,
+    const char*  code,
+    uint64_t     codelength,
+    int32_t      reclen,
+    int32_t      encoding,
+    uint32_t*    output_buffer_p,
+    uint64_t*    output_length
+) {
+    if(samples == nullptr || samplecount == 0)
+        return MSEED_INVALID_SAMPLE_COUNT;
+    if(code == nullptr || codelength == 0)
+        return MSEED_CODE_PARSE_FAILED;
+    if(output_buffer_p == nullptr || output_length == nullptr)
+        return MSEED_WRITE_FAILED;
+
+    std::string code_string(code, static_cast<size_t>(codelength));
+    const size_t null_index = code_string.find('\0');
+    if(null_index != std::string::npos)
+        code_string = code_string.substr(0, null_index);
+
+    std::string network;
+    std::string station;
+    std::string location;
+    std::string channel;
+    if(!split_mseed_code(
+        code_string,
+        &network,
+        &station,
+        &location,
+        &channel
+    ))
+        return MSEED_CODE_PARSE_FAILED;
+
+    char sid[LM_SIDLEN];
+    const int sid_rc = ms_nslc2sid(
+        sid,
+        sizeof(sid),
+        0,
+        network.c_str(),
+        station.c_str(),
+        location.c_str(),
+        channel.c_str()
+    );
+    if(sid_rc < 0)
+        return MSEED_CODE_PARSE_FAILED;
+
+    MS3Record* msr = msr3_init(NULL);
+    if(msr == nullptr)
+        return MSEED_RECORD_INIT_FAILED;
+
+    std::strncpy(msr->sid, sid, sizeof(msr->sid) - 1);
+    msr->sid[sizeof(msr->sid) - 1] = '\0';
+    msr->reclen = (reclen > 0) ? reclen : MS_PACK_DEFAULT_RECLEN;
+    msr->formatversion = 2;
+    msr->pubversion = 1;
+    msr->starttime = static_cast<nstime_t>(starttime);
+    msr->samprate = samplerate;
+
+    if(encoding <= 0)
+        encoding = DE_FLOAT32;
+    if(encoding != DE_FLOAT32) {
+        msr3_free(&msr);
+        return MSEED_ENCODING_NOT_IMPLEMENTED;
+    }
+
+    msr->encoding = encoding;
+    msr->numsamples = static_cast<int64_t>(samplecount);
+    msr->samplecnt = static_cast<int64_t>(samplecount);
+    msr->sampletype = 'f';
+    msr->datasamples = const_cast<float*>(samples);
+    msr->datasize = samplecount * sizeof(float);
+
+    uint32_t flags = 0;
+    flags |= MSF_FLUSHDATA;
+
+    int64_t packed_samples = 0;
+    std::vector<uint8_t> output;
+    const int64_t rc = msr3_pack(
+        msr,
+        append_mseed_record,
+        &output,
+        &packed_samples,
+        flags,
+        0
+    );
+    msr->datasamples = NULL;
+    msr3_free(&msr);
+    if(rc < 0)
+        return MSEED_WRITE_FAILED;
+    if(output.empty())
+        return MSEED_WRITE_FAILED;
+
+    uint8_t* out_buffer =
+        static_cast<uint8_t*>(std::malloc(output.size()));
+    if(out_buffer == nullptr)
+        return MSEED_ALLOC_FAILED;
+
+    std::memcpy(out_buffer, output.data(), output.size());
+
+    *output_buffer_p =
+        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(out_buffer));
+    *output_length = static_cast<uint64_t>(output.size());
 
     return OK;
 }
