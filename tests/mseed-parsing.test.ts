@@ -122,7 +122,6 @@ Deno.test('mseed-writing', async (t:Deno.TestContext) => {
             samplerate: 20,
             starttime: starttime,
         })
-        console.log(file)
         assert(!(file instanceof Error))
         assert(file.size > 0)
 
