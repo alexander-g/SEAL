@@ -44,7 +44,7 @@ function ifft(fftoutput:Float32Array, n:number): Float32Array {
     const ifftoutput = new Float32Array(nfft*2)
     f.inverseTransform(ifftoutput, complete_fftspectrum)
 
-    return f.fromComplexArray(ifftoutput, undefined).slice(0, n)
+    return Float32Array.from(f.fromComplexArray(ifftoutput, undefined)).slice(0, n)
 }
 
 
