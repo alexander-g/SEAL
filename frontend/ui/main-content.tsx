@@ -1,29 +1,30 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 
-import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { D3Map }         from './d3-map.tsx'
-import { MSEED_SignalPlot, type MSEED_SignalPlotData } from "./mseed-signal-plot.tsx"
+import { MSEED_SignalPlot, type MSEED_SignalPlotData } from './mseed-signal-plot.tsx'
+import {
+    MSEED_ModulationPowerSpectrum,
+    type MSEED_ModulationPowerSpectrumData,
+} from './mseed-modulation-power-spectrum.tsx'
 import { 
     MSEED_Spectrogram as MSEED_Spectrogram, 
     type MSEED_Data as MSEED_SpectrogramData 
-} from "./mseed-spectrogram.tsx"
-import { MSEED_Heatmap } from "./mseed-heatmap.tsx"
-import { ContainerWithOverlay } from './plot-image.tsx'
-import { SettingsContainer } from "./component-settings.tsx"
+} from './mseed-spectrogram.tsx'
+import { MSEED_Heatmap } from './mseed-heatmap.tsx'
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { tremorwasm }          from '../lib/file-input.ts'
-import { combine_mseed_codes } from "../lib/mseed-parsing.ts"
+import { combine_mseed_codes } from '../lib/mseed-parsing.ts'
 
 import { initialize_in_worker as initialize_pyodide } from '../lib/pyodide.ts'
 import { is_deno, strftime_ISO8601_datetime } from '../lib/util.ts'
 
 import type { AppConfig }         from '../index.tsx'
 import type { InferenceEvent }    from './mseed-heatmap.tsx'
-import type { IPyodide, SpectrogramData } from '../lib/pyodide.ts'
+import type { IPyodide } from '../lib/pyodide.ts'
 import type { Marker, MarkerVisual } from './d3-map.tsx'
 import type { MSEED_FileAndMeta } from '../lib/file-input.ts'
-import type { MSeedMetadata }     from "../lib/mseed-parsing.ts"
+import type { MSeedMetadata }     from '../lib/mseed-parsing.ts'
 import type { Station, Channel }  from '../lib/station-xml.ts'
 import type { QuakeEvent }        from '../lib/quakeml.ts'
 import type { AudioWaveform }     from './audio-playback-controls.tsx'
@@ -76,28 +77,11 @@ export class MainContent extends preact.Component<MainContentProps> {
             {
                 key: 'mps',
                 label: 'Modulation Power Spectrum',
-                element: <SettingsContainer
-                    settings_entries = {[]}
-                >
-                    <ContainerWithOverlay
-                        $is_loading     = {this.$plots_loading}
-                        uninitialized_message = 'Select a MSEED channel and time to plot here.'
-                    >
-                        <D3Heatmap
-                            $data   = {this.$mps_heatmap_data}
-                            $x_axis = {this.$mps_temporal_axis}
-                            $y_axis = {this.$mps_spectral_axis}
-                            on_click = {this.on_mps_click}
-                            $title   = {this.$mps_title}
-                            y_axis_label = 'Spectral Modulation (1/Hz)'
-                            x_axis_label = 'Temporal Modulation (Hz)'
-                            x_axis_label_formatter = {this.format_mps_axis_value}
-                            enable_hover = {false}
-                            enable_zoom  = {false}
-                            colormap     = 'magma'
-                        />
-                    </ContainerWithOverlay>
-                </SettingsContainer>,
+                element: <MSEED_ModulationPowerSpectrum
+                    $data    = {this.$modulation_power_spectrum_data}
+                    $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
+                    $loading = {this.$plots_loading}
+                />,
             },
             {
                 key: 'map',
@@ -374,16 +358,6 @@ export class MainContent extends preact.Component<MainContentProps> {
             }
 
             const code: string = combine_mseed_codes(mseed.meta)
-            const mps_promise:Promise<SpectrogramData|Error> =
-                this.pyodide.plot_modulation_power_spectrum(
-                    data,
-                    i0,
-                    i1,
-                    mseed.meta.starttime,
-                    mseed.meta.samplerate,
-                    code,
-                )
-
             const channel: Channel|null = 
                 find_channel_for_mseed_meta(mseed.meta, this.props.$stations.value)
             this.$signal_plot_data.value = {
@@ -401,50 +375,25 @@ export class MainContent extends preact.Component<MainContentProps> {
                 fs:             mseed.meta.samplerate,
                 code:           code,
             }
+            this.$modulation_power_spectrum_data.value = {
+                signal:         data,
+                slice_indices:  [i0, i1],
+                start_time:     mseed.meta.starttime,
+                fs:             mseed.meta.samplerate,
+                code:           code,
+            }
             this.$audiodata.value = { 
                 data:       await slice_and_prepare_audio(data, i0, i1, mseed.meta.samplerate, this.pyodide!), 
                 samplerate: 8000,
             }
-
-            const mps_data:SpectrogramData|Error = await mps_promise
-            if(mps_data instanceof Error) {
-                console.error(
-                    `Error plotting modulation power spectrum: ${mps_data.message}`
-                )
-                return
-            }
-            this.$mps_temporal_axis.value = Array.from(mps_data.t_axis)
-            this.$mps_spectral_axis.value = Array.from(
-                mps_data.f_axis,
-                f => format_frequency_label(f)
-            )
-            this.$mps_title.value = `${code} - Modulation Power Spectrum`
-            this.$mps_heatmap_data.value = spectrogram_to_heatmap(mps_data)
         } finally {
             this.$plots_loading.value = false
         }
     }
 
 
-    $mps_heatmap_data:   Signal<HeatmapDataItem[]> = new Signal([])
-    $mps_temporal_axis:  Signal<number[]>          = new Signal([])
-    $mps_spectral_axis:  Signal<string[]>          = new Signal(['0'])
-    $mps_title:          Signal<string>            = new Signal('')
-
-    on_mps_click = (_selected:number) => {}
-
-    format_mps_axis_value = (value:number): string => {
-        if(!Number.isFinite(value))
-            return ''
-
-        if(Math.abs(value) >= 10)
-            return value.toFixed(0)
-
-        if(Math.abs(value) >= 1)
-            return value.toFixed(1)
-
-        return value.toFixed(2)
-    }
+    $modulation_power_spectrum_data:
+        Signal<MSEED_ModulationPowerSpectrumData|null> = new Signal(null)
 
 }
 
@@ -512,42 +461,6 @@ async function slice_and_prepare_audio(
 }
 
 
-function spectrogram_to_heatmap(data: SpectrogramData): HeatmapDataItem[] {
-    const rows:number = Math.max(data.rows, 0)
-    const cols:number = Math.max(data.cols, 0)
-    const output:HeatmapDataItem[] = []
-    if(rows == 0 || cols == 0)
-        return output
-
-    let index:number = 0
-    for(let row:number = 0; row < rows; row++) {
-        for(let col:number = 0; col < cols; col++) {
-            const power:number = data.power[index] ?? 0
-            output.push({
-                x: col,
-                y: row,
-                color: power,
-            })
-            index += 1
-        }
-    }
-
-    return output
-}
-
-
-function format_frequency_label(frequency_hz: number): string {
-    if(!Number.isFinite(frequency_hz))
-        return '0'
-
-    if(frequency_hz >= 10)
-        return frequency_hz.toFixed(0)
-
-    if(frequency_hz >= 1)
-        return frequency_hz.toFixed(1)
-
-    return frequency_hz.toFixed(2)
-}
 
 
 /** Helper type to partition stations with and without loaded mseed metadata */
