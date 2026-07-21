@@ -207,7 +207,7 @@ export class MSEED_Heatmap extends preact.Component<{
             const meta_end_s:number   = meta.endtime.getTime() / 1000
             // aligning to bin length
             const t0:number = meta_start_s - (meta_start_s % bin_length_seconds)
-            const t1:number = meta_end_s - (meta_end_s % bin_length_seconds)
+            const t1:number = meta_end_s - (meta_end_s % bin_length_seconds) + (bin_length_seconds - 0.1)
             const index0:number = (t0 - tstart) / bin_length_seconds
             const index1:number = (t1 - tstart) / bin_length_seconds
             const yindex:number = all_codes.indexOf(code)
@@ -253,19 +253,16 @@ export class MSEED_Heatmap extends preact.Component<{
         }
         const meta:MSeedMetadata = this.props.$mseed_meta.value[item.mseedindex]!
         
-        // starting time in the file, but not necessarily in the first item
         const meta_start_s = meta.starttime.getTime() / 1000
-        // need to align to bin length
-        // TODO: un-hardcode
-        const first_item_start_s: number = 
-            meta_start_s - (meta_start_s % HARDCODED_BIN_LENGTH_SECONDS)
         const t0: number = item.timestamp;
 
-        const start_seconds_within_file = t0 - first_item_start_s;
+        const start_seconds_within_file = t0 - meta_start_s;
         
-        const i0: number = start_seconds_within_file * meta.samplerate;
-        const i1: number = i0 + HARDCODED_BIN_LENGTH_SECONDS * meta.samplerate;
-        this.props.on_click(item.mseedindex, i0, i1);
+        const i0: number = 
+            Math.floor( Math.max(start_seconds_within_file * meta.samplerate, 0) )
+        const i1: number = 
+            Math.floor( i0 + HARDCODED_BIN_LENGTH_SECONDS * meta.samplerate )
+        this.props.on_click(item.mseedindex, i0, i1)
     }
 
     format_station_axis_label = (index:number, y_axis:string[]): string => {
