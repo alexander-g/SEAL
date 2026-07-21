@@ -246,10 +246,9 @@ export class Pyodide implements IPyodide {
             this.pyodide.globals.get('prepare_obs_signal_for_audio')
         
         try {
-            await py_fn(data, sample_rate_hz, '/audiodata.bin')
-            const audiodata_u8:Uint8Array<ArrayBuffer> =
-                this.pyodide.FS.readFile('/audiodata.bin', {encoding: 'binary'})
-            return new Float32Array(audiodata_u8.buffer)
+            const output_py: unknown = await py_fn(data, sample_rate_hz)
+            const audio: Float32Array|Error = validate_audio_output(output_py)
+            return audio
         } catch (e) {
             return new Error(`${e}`)
         }
@@ -473,6 +472,23 @@ class PyodideToWorkerInterface implements IPyodide {
     }
 }
 
+function validate_audio_output(output_py: unknown): Float32Array|Error {
+    let output_js:unknown;
+
+    if(typeof output_py == 'object'
+    && output_py != null
+    && 'toJs' in output_py
+    && typeof output_py.toJs == 'function'
+    )
+        output_js = output_py.toJs()
+    else
+        return new Error('Not a pyodide output')
+
+    if(!(output_js instanceof Float32Array))
+        return new Error('Audio output is not a float32 array')
+    
+    return output_js as Float32Array
+}
 
 function validate_pyodide_spectrogram_output(output_py: unknown): SpectrogramData|Error {
     let output_js:unknown;
