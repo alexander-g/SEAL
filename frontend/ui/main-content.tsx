@@ -72,26 +72,6 @@ export class MainContent extends preact.Component<MainContentProps> {
                     $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
                     $loading = {this.$plots_loading}
                 />
-                //  <SettingsContainer
-                //     settings_entries = {[]}
-                // >
-                //     <ContainerWithOverlay
-                //         $is_loading     = {this.$plots_loading}
-                //         uninitialized_message = 'Select a MSEED channel and time to plot here.'
-                //     >
-                //         <D3Heatmap
-                //             $data   = {this.$spectrogram_heatmap_data}
-                //             $x_axis = {this.$spectrogram_time_axis}
-                //             $y_axis = {this.$spectrogram_frequency_axis}
-                //             on_click = {this.on_spectrogram_click}
-                //             $title   = {this.$spectrogram_title}
-                //             y_axis_label = 'Frequency (Hz)'
-                //             x_axis_label = 'Time (UTC)'
-                //             enable_hover = {false}
-                //             enable_zoom  = {false}
-                //         />
-                //     </ContainerWithOverlay>
-                // </SettingsContainer>,
             },
             {
                 key: 'mps',

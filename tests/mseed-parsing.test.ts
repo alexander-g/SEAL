@@ -131,6 +131,21 @@ Deno.test('mseed-writing', async (t:Deno.TestContext) => {
         assert(meta.nsamples == data.length)
         assert(meta.samplerate == 20)
         assert(meta.code == 'XX.TEST..BHZ')
+
+        const meta2 = await read_mseed_metadata(file)
+        assert(!(meta2 instanceof Error))
+        assert(meta2.samplerate == 20)
+        assert(meta2.network  == 'XX')
+        assert(meta2.station  == 'TEST')
+        assert(meta2.location == '')
+        assert(meta2.channel  == 'BHZ')
+
+
+        const readresult = await tremorwasm.read_data(file)
+        assert(!(readresult instanceof Error))
+        assert(readresult.length == data.length)
+        for(let i:number = 0; i < data.length; i++)
+            assert( Math.abs(data[i]! - readresult[i]!) < 0.001 )
     })
 
     await t.step('failure-case', async () => {

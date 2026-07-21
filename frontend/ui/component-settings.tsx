@@ -9,6 +9,8 @@ type SettingsContainerProps = {
 
     settings_entries: SettingsEntry[];
 
+    extra_actions?: SettingsAction[];
+
     /** Callback when user clicked on the `Apply` button */
     on_apply?: () => void;
 }
@@ -28,6 +30,7 @@ export class SettingsContainer extends preact.Component<SettingsContainerProps> 
             this.$settings_open.value
             ?   <SettingsOverlay 
                     settings_entries = {this.props.settings_entries}
+                    extra_actions    = {this.props.extra_actions}
                     on_close         = {this.close_settings}
                 />
             :   null
@@ -58,6 +61,8 @@ export class SettingsContainer extends preact.Component<SettingsContainerProps> 
 
 type SettingsOverlayProps = {
     settings_entries: SettingsEntry[]
+
+    extra_actions?: SettingsAction[];
 
     /** Callback when user clicks on `Apply` or `Cancel` */
     on_close: (ok:boolean) => void;
@@ -94,6 +99,13 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
         }
 
         const actions_css: preact.CSSProperties = {
+            display:        'flex',
+            justifyContent: 'flex-end',
+            gap:            '8px',
+            marginTop:      '8px',
+        }
+
+        const extra_actions_css: preact.CSSProperties = {
             display:        'flex',
             justifyContent: 'flex-end',
             gap:            '8px',
@@ -143,6 +155,23 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
                 )
         }
 
+        const extra_action_buttons: JSX.Element[] = []
+        for(
+            const [action_index, action]
+            of (this.props.extra_actions ?? []).entries()
+        ) {
+            extra_action_buttons.push(
+                <button
+                    key     = {action_index}
+                    type    = 'button'
+                    style   = {button_css}
+                    onClick = {action.on_click}
+                >
+                    {action.label}
+                </button>
+            )
+        }
+
         return  <>
         <div style = {overlay_css}>
             <div style={settingspanel_css}>
@@ -168,6 +197,14 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
                         Apply
                     </button>
                 </div>
+
+                {
+                extra_action_buttons.length > 0
+                ?   <div style={extra_actions_css}>
+                        {extra_action_buttons}
+                    </div>
+                :   null
+                }
             </div>
         </div>
         </>
@@ -203,6 +240,11 @@ type NumberSettingsEntry = {
     label:   string;
     step:    number;
     $signal: Signal<number>
+}
+
+export type SettingsAction = {
+    label:    string;
+    on_click: () => void;
 }
 
 export type SettingsEntry = BooleanSettingsEntry | NumberSettingsEntry;

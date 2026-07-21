@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -164,7 +165,7 @@ int32_t read_mseed(
     *nsamples   = segment->samplecnt;
     *samplerate = segment->samprate;
 
-    char network[8], station[8], location[8], channel[8];
+    char network[8] = {0}, station[8] = {0}, location[8] = {0}, channel[8] = {0};
     const int rc = ms_sid2nslc_n(
         trace->sid, 
         network, 
@@ -268,6 +269,7 @@ int32_t write_mseed(
     std::strncpy(msr->sid, sid, sizeof(msr->sid) - 1);
     msr->sid[sizeof(msr->sid) - 1] = '\0';
     msr->reclen = (reclen > 0) ? reclen : MS_PACK_DEFAULT_RECLEN;
+    msr->formatversion = 2;
     msr->pubversion = 1;
     msr->starttime = static_cast<nstime_t>(starttime);
     msr->samprate = samplerate;
