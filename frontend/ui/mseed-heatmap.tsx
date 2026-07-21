@@ -258,8 +258,10 @@ export class MSEED_Heatmap extends preact.Component<{
 
         const start_seconds_within_file = t0 - meta_start_s;
         
-        const i0: number = Math.max(start_seconds_within_file * meta.samplerate, 0)
-        const i1: number = i0 + HARDCODED_BIN_LENGTH_SECONDS * meta.samplerate
+        const i0: number = 
+            Math.floor( Math.max(start_seconds_within_file * meta.samplerate, 0) )
+        const i1: number = 
+            Math.floor( i0 + HARDCODED_BIN_LENGTH_SECONDS * meta.samplerate )
         this.props.on_click(item.mseedindex, i0, i1)
     }
 
