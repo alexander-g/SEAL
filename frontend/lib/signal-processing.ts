@@ -81,16 +81,27 @@ export function bandpass_filter_fir(
     f_max:  number,
     order:  number = 100
 ): Float32Array {
+    if(f_min <= 0 && f_max > fs/2)
+        return signal
+
     const n: number = signal.length;
     signal = reflect_pad_and_taper_signal_both_sides(signal, fs, 3, 10)
 
     const fir_calculator = new fili.FirCoeffs();
-    const fir_coeffs = fir_calculator.bandpass({
-        order: order,
-        Fs:    fs,
-        F1:    f_min,
-        F2:    f_max,
-    });
+    let fir_coeffs: unknown;
+    if(f_min <= 0)
+        fir_coeffs = fir_calculator.lowpass({
+            order: order,
+            Fs:    fs,
+            Fc:    f_max,
+        });
+    else
+        fir_coeffs = fir_calculator.bandpass({
+            order: order,
+            Fs:    fs,
+            F1:    f_min,
+            F2:    f_max,
+        });
     const fir_filter = new fili.FirFilter(fir_coeffs);
     const output: number[] = fir_filter.simulate(signal)
     

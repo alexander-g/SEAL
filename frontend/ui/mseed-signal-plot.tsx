@@ -88,7 +88,7 @@ export class MSEED_SignalPlot extends preact.Component<{
 
         const f_min: number = this.settings.$bandpass_fmin.value
         const f_max: number = this.settings.$bandpass_fmax.value
-        data = signalprocessing.bandpass_filter(data, fs, f_min, f_max)
+        data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
 
         const filter_str:string = format_filter(f_min, f_max, fs)
         const title = `${plot_data.code} - Signal ${filter_str}`
