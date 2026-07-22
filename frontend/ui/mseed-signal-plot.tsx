@@ -21,8 +21,8 @@ import { strftime_ISO8601_datetime } from '../lib/util.ts'
 
 
 export type MSEED_SignalPlotData = Omit<SignalPlotData, 'x_domain'|'title'> & {
-    /** Indices to slice the full signal */
-    slice_indices: [number, number]
+    /** Which first index within the signal to visualize */
+    slice_start_index: number
 
     /** Network, station, channel code */
     code: string
@@ -37,6 +37,10 @@ export class MSEED_SignalPlot extends preact.Component<{
     $plot_data: Readonly<Signal<MSEED_SignalPlotData | null>>;
 
     $loading: Readonly<Signal<boolean>>;
+
+    /** The length of the signal to be displayed in seconds. 
+     *  Shared with other components. Both input and output. */
+    $slice_length?: Signal<number>;
 }> {
     render(): JSX.Element {
         return <>
@@ -61,14 +65,19 @@ export class MSEED_SignalPlot extends preact.Component<{
 
     /** Plot data, sliced and bandpass filtered */
     $processed_plot_data: Readonly<Signal<SignalPlotData|null>> = signals.computed(() => {
+        // signal subscriptions first
         const plot_data: MSEED_SignalPlotData|null = this.props.$plot_data.value
+        const f_min: number = this.settings.$bandpass_fmin.value
+        const f_max: number = this.settings.$bandpass_fmax.value
+        const slice_length: number = this.settings.$slice_length.value
+
         if(plot_data == null)
             return null
 
         const fs: number = plot_data.sample_rate_hz
         let data: Float32Array = plot_data.data
-        const [i0, _i1] = plot_data.slice_indices
-        const i1:number = i0 + this.settings.$slice_length.value * fs
+        const i0:number = plot_data.slice_start_index
+        const i1:number = i0 + slice_length * fs
 
         data = data.slice(i0, i1)
         if(data.length < 2)
@@ -86,8 +95,6 @@ export class MSEED_SignalPlot extends preact.Component<{
         if(x_domain instanceof Error)
             return null;
 
-        const f_min: number = this.settings.$bandpass_fmin.value
-        const f_max: number = this.settings.$bandpass_fmax.value
         data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
 
         const filter_str:string = format_filter(f_min, f_max, fs)
@@ -100,7 +107,8 @@ export class MSEED_SignalPlot extends preact.Component<{
 
 
     /** Parameters modified by the user. */
-    settings: MSEED_SignalPlotSettings = new MSEED_SignalPlotSettings()
+    settings: MSEED_SignalPlotSettings = 
+        new MSEED_SignalPlotSettings(this.props.$slice_length)
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted above
@@ -143,7 +151,7 @@ export class MSEED_SignalPlot extends preact.Component<{
             return new Error('No signal data to export')
 
         const fs: number = plot_data.sample_rate_hz
-        const [i0] = plot_data.slice_indices
+        const i0: number = plot_data.slice_start_index
         const i1: number = i0 + this.settings.$slice_length.value * fs
 
         let data: Float32Array = plot_data.data.slice(i0, i1)
@@ -186,11 +194,14 @@ export class MSEED_SignalPlotSettings {
     $bandpass_fmax = new Signal<number>(99999);
 
     /** How much of the signal to show */
-    $slice_length = new Signal<number>(300)
+    $slice_length: Signal<number>;
 
     /** Export the filtered signal instead of the original */
     $export_filtered = new Signal<boolean>(false)
 
+    constructor($slice_length?:Signal<number>) {
+        this.$slice_length = $slice_length ?? new Signal(300);
+    }
 
     to_component_settings_entries(): SettingsEntry[] {
         return [

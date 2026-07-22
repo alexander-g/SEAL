@@ -60,8 +60,9 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Signal',
                 element: 
                     <MSEED_SignalPlot
-                        $plot_data  = {this.$signal_plot_data}
-                        $loading    = {this.$plots_loading}
+                        $plot_data    = {this.$signal_plot_data}
+                        $loading      = {this.$plots_loading}
+                        $slice_length = {this.$signal_slice_length}
                     />
             },
             {
@@ -72,6 +73,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                     $data    = {this.$spectrogram_plot_data}
                     $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
                     $loading = {this.$plots_loading}
+                    $slice_length = {this.$signal_slice_length}
                 />
             },
             {
@@ -313,6 +315,10 @@ export class MainContent extends preact.Component<MainContentProps> {
     /** Indicates if we are reading data and rendering plots. */
     $plots_loading: Signal<boolean> = new Signal(false)
 
+    /** The  length of the signal to be displayed in the signal plot, 
+     *  spectrogram, audio components. In seconds.*/
+    $signal_slice_length = new Signal<number>(300);
+
     /** Currently active data in the 1D signal plot */
     $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
 
@@ -362,18 +368,18 @@ export class MainContent extends preact.Component<MainContentProps> {
                 find_channel_for_mseed_meta(mseed.meta, this.props.$stations.value)
             this.$signal_plot_data.value = {
                 data,
-                slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 sample_rate_hz: mseed.meta.samplerate,
                 code:           code,
                 response:       channel?.response,
+                slice_start_index:  i0,
             }
             this.$spectrogram_plot_data.value = {
                 signal:         data,
-                slice_indices:  [i0, i1],
                 start_time:     mseed.meta.starttime,
                 fs:             mseed.meta.samplerate,
                 code:           code,
+                slice_start_index:  i0,
             }
             this.$modulation_power_spectrum_data.value = {
                 signal:         data,
