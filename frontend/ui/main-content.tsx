@@ -13,7 +13,9 @@ import {
 import { MSEED_Heatmap } from './mseed-heatmap.tsx'
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
-import { tremorwasm }          from '../lib/file-input.ts'
+import {
+    read_mseed_slice_across_files,
+} from '../lib/file-input.ts'
 import { combine_mseed_codes } from '../lib/mseed-parsing.ts'
 
 import { initialize_in_worker as initialize_pyodide } from '../lib/pyodide.ts'
@@ -319,6 +321,12 @@ export class MainContent extends preact.Component<MainContentProps> {
      *  spectrogram, audio components. In seconds.*/
     $signal_slice_length = new Signal<number>(300);
 
+    /** Selected file index from the heatmap. */
+    $selected_file_index: Signal<number|null> = new Signal(null)
+
+    /** Selected slice start index from the heatmap. */
+    $selected_slice_start_index: Signal<number|null> = new Signal(null)
+
     /** Currently active data in the 1D signal plot */
     $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
 
@@ -331,70 +339,137 @@ export class MainContent extends preact.Component<MainContentProps> {
     pyodide: IPyodide|undefined;
     $pyodide: Signal<IPyodide|undefined> = new Signal(undefined)
 
-    /** Called when user clicks on an item in the heatmap.
-     *  Reading the corresponding segment from the MSEED file and forwarding
-     *  to other components for visualization. */
-    on_heatmap_item_select = async (selected_file_index:number, i0:number, i1:number) => {
+    /** Re-read data when slice length exceeds current data. */
+    #_1 = signals.effect( (async () => {
+        const slice_length: number = this.$signal_slice_length.value
+        const selected_file_index: number|null = this.$selected_file_index.value
+        const slice_start_index: number|null = this.$selected_slice_start_index.value
+        const plot_data: MSEED_SignalPlotData|null = this.$signal_plot_data.value
+
+        if(this.$plots_loading.value)
+            return
+
+        if(selected_file_index == null || slice_start_index == null)
+            return
+
+        if(plot_data == null)
+            return
+
+        const fs: number = plot_data.sample_rate_hz
+        const slice_end_index: number = slice_start_index + slice_length * fs
+        if(plot_data.data.length >= slice_end_index)
+            return
+
+        const result: Error|void = await this.read_signal_slice_for_plots(
+            selected_file_index,
+            slice_start_index,
+            slice_end_index,
+        )
+        if(result instanceof Error)
+            console.warn(result.message)
+    }) as () => void )
+
+    /** Read a signal slice and refresh all plots. */
+    private async read_signal_slice_for_plots(
+        selected_file_index: number,
+        slice_start_index:   number,
+        slice_end_index?:    number,
+    ): Promise<void|Error> {
         if(this.$plots_loading.value)
             return
 
         this.$plots_loading.value = true
 
         try {
-            if(this.pyodide == undefined) {
-                console.error('Pyodide not initialized')
-                return
-            }
+            if(this.pyodide == undefined)
+                return new Error('Pyodide not initialized')
 
-            const mseed:MSEED_FileAndMeta|undefined = 
+            const mseed: MSEED_FileAndMeta|undefined =
                 this.props.$mseeds.value[selected_file_index]
             if(mseed == undefined) {
-                console.error(`No mseed file at index ${selected_file_index}`)
-                return;
-            }
-            
-            const file:File = mseed.file;
-            
-            console.log('Reading file: ', file.name)
-            const data:Float32Array|Error = await tremorwasm.read_data(file)
-            if(data instanceof Error) {
-                console.log(`Could not read mseed data of ${file.name}`)
-                console.log(data as Error)
-                return
+                return new Error(
+                    `No mseed file at index ${selected_file_index}`
+                )
             }
 
+            const fs: number = mseed.meta.samplerate
+            const resolved_slice_end_index: number = slice_end_index
+                ?? (slice_start_index + this.$signal_slice_length.value * fs)
+
+            const data: Float32Array|Error =
+                await read_mseed_slice_across_files(
+                    this.props.$mseeds.value,
+                    selected_file_index,
+                    [slice_start_index, resolved_slice_end_index],
+                )
+            if(data instanceof Error)
+                return data
+
             const code: string = combine_mseed_codes(mseed.meta)
-            const channel: Channel|null = 
-                find_channel_for_mseed_meta(mseed.meta, this.props.$stations.value)
+            const channel: Channel|null =
+                find_channel_for_mseed_meta(
+                    mseed.meta,
+                    this.props.$stations.value,
+                )
+
             this.$signal_plot_data.value = {
                 data,
-                start_time:     mseed.meta.starttime,
-                sample_rate_hz: mseed.meta.samplerate,
-                code:           code,
-                response:       channel?.response,
-                slice_start_index:  i0,
+                start_time:        mseed.meta.starttime,
+                sample_rate_hz:    mseed.meta.samplerate,
+                code:              code,
+                response:          channel?.response,
+                slice_start_index: slice_start_index,
             }
             this.$spectrogram_plot_data.value = {
-                signal:         data,
-                start_time:     mseed.meta.starttime,
-                fs:             mseed.meta.samplerate,
-                code:           code,
-                slice_start_index:  i0,
+                signal:            data,
+                start_time:        mseed.meta.starttime,
+                fs:                mseed.meta.samplerate,
+                code:              code,
+                slice_start_index: slice_start_index,
             }
             this.$modulation_power_spectrum_data.value = {
-                signal:         data,
-                slice_indices:  [i0, i1],
-                start_time:     mseed.meta.starttime,
-                fs:             mseed.meta.samplerate,
-                code:           code,
+                signal:        data,
+                slice_indices: [slice_start_index, resolved_slice_end_index],
+                start_time:    mseed.meta.starttime,
+                fs:            mseed.meta.samplerate,
+                code:          code,
             }
-            this.$audiodata.value = { 
-                data:       await slice_and_prepare_audio(data, i0, i1, mseed.meta.samplerate, this.pyodide!), 
+            this.$audiodata.value = {
+                data: await slice_and_prepare_audio(
+                    data,
+                    slice_start_index,
+                    resolved_slice_end_index,
+                    mseed.meta.samplerate,
+                    this.pyodide,
+                ),
                 samplerate: 8000,
             }
+
+            return
         } finally {
             this.$plots_loading.value = false
         }
+    }
+
+    /** Called when user clicks on an item in the heatmap.
+     *  Reading the corresponding segment from the MSEED file and forwarding
+     *  to other components for visualization. */
+    on_heatmap_item_select = async (selected_file_index:number, i0:number, i1:number) => {
+        // TODO: remove i1, use $signal_slice_length instead
+        
+        if(this.$plots_loading.value)
+            return
+
+        this.$selected_file_index.value = selected_file_index
+        this.$selected_slice_start_index.value = i0
+
+        const result: Error|void = await this.read_signal_slice_for_plots(
+            selected_file_index,
+            i0,
+            i1,
+        )
+        if(result instanceof Error)
+            console.warn(result.message)
     }
 
 
