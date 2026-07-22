@@ -153,6 +153,14 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
                         {...entry}
                     />
                 )
+            else if(entry.type == 'enum')
+                entry_components.push(
+                    <EnumSettingsEntryComponent
+                        key       = {entry_index}
+                        ref       = {this.entries_refs[entry_index]}
+                        {...entry}
+                    />
+                )
         }
 
         const extra_action_buttons: JSX.Element[] = []
@@ -242,19 +250,38 @@ type NumberSettingsEntry = {
     $signal: Signal<number>
 }
 
+type EnumSettingsOption = {
+    label: string;
+    value: string;
+}
+
+/** Render a dropdown for selecting one of several values. */
+type EnumSettingsEntry = {
+    type:    'enum';
+    label:   string;
+    options: EnumSettingsOption[];
+    $signal: Signal<string>
+}
+
 export type SettingsAction = {
     label:    string;
     on_click: () => void;
 }
 
-export type SettingsEntry = BooleanSettingsEntry | NumberSettingsEntry;
+export type SettingsEntry =
+    BooleanSettingsEntry
+    | NumberSettingsEntry
+    | EnumSettingsEntry;
 
 type SettingsValue = SettingsEntry['$signal']['value']
 
 
 
 
-type SettingsEntryComponent = NumberSettingsEntryComponent | BooleanSettingsEntryComponent
+type SettingsEntryComponent =
+    NumberSettingsEntryComponent
+    | BooleanSettingsEntryComponent
+    | EnumSettingsEntryComponent
 
 
 
@@ -306,6 +333,42 @@ class NumberSettingsEntryComponent extends preact.Component<NumberSettingsEntry>
         </label>
     }
 } 
+
+class EnumSettingsEntryComponent extends preact.Component<EnumSettingsEntry> {
+    public draft_value: string = this.props.$signal.value;
+
+    /** Render an enum entry as a dropdown. */
+    render(): JSX.Element {
+        const input_css: preact.CSSProperties = {
+            border:       '1px solid #b9c5cf',
+            borderRadius: '4px',
+            padding:      '2px 6px',
+            fontSize:     '12px',
+            background:   '#ffffff',
+        }
+
+        return <label style={settings_row_css}>
+            <span>{this.props.label}</span>
+            <select
+                value    = {this.draft_value}
+                style    = {input_css}
+                onChange = {
+                    (event:preact.TargetedEvent<HTMLSelectElement>) =>
+                        this.draft_value =
+                            (event.target as HTMLSelectElement).value
+                }
+            >
+                {
+                this.props.options.map(option => (
+                    <option key={option.value} value={option.value}>
+                        {option.label}
+                    </option>
+                ))
+                }
+            </select>
+        </label>
+    }
+}
 
 
 
