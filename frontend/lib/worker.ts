@@ -54,6 +54,7 @@ self.onmessage = async (e:MessageEvent) => {
     const task:Task = e.data;
     let result: WorkerResult|Error;
 
+    const tasktype = task.type;
     if(task.type == 'compute-envelope') {
         const envelope: Float32Array = 
             compute_envelope(task.signal, task.fs, task.f_min, task.f_max)
@@ -62,7 +63,7 @@ self.onmessage = async (e:MessageEvent) => {
             task_id:  task.task_id,
             envelope: envelope,
         }
-    } if(task.type == 'band-power-ratio') {
+    } else if(task.type == 'band-power-ratio') {
         const ratio: Float32Array = compute_band_power_ratio(
             task.signal, 
             task.fs, 
@@ -76,7 +77,7 @@ self.onmessage = async (e:MessageEvent) => {
             ratio :  ratio,
         }
     } else {
-        result = new Error(`Unknown worker task type: ${task.type}`)
+        result = new Error(`Unknown worker task type: ${tasktype}`)
     }
 
     self.postMessage(result)
