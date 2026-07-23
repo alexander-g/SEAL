@@ -76,8 +76,8 @@ export class MSEED_Heatmap extends preact.Component<{
     render(): JSX.Element {
         return <>
         <ContainerWithOverlay
-            $is_loading     = {this.$loading_envelope}
-            loading_message = {this.$loading_envelope_message}
+            $is_loading     = {this.$overlay_on}
+            loading_message = {this.$overlay_message}
         >
             <SettingsContainer
                 settings_entries = {this.settings.to_component_settings_entries()}
@@ -148,8 +148,11 @@ export class MSEED_Heatmap extends preact.Component<{
     })
 
     $transformed_files:Readonly<Signal<HeatmapDataItemWithFile[]>> = signals.computed(() => {
-        if(this.$envelopes_on.value && this.$envelope_items.value.length > 0)
+        const mode: HeatmapColorMode = this.settings.$heatmap_color_mode.value
+        if(mode == 'envelope' && this.$envelope_items.value.length > 0)
             return this.$envelope_items.value
+        if(mode == 'band_power_ratio' && this.$bandratio_items.value.length > 0)
+            return this.$bandratio_items.value
         return this.$transformed.value.items
     })
 
@@ -213,7 +216,7 @@ export class MSEED_Heatmap extends preact.Component<{
             const yindex:number = all_codes.indexOf(code)
 
             for(let j:number = index0; j < index1 + 1; j++) {
-                const timestamp:number = j * bin_length_seconds + tstart
+                const timestamp:number = Math.round(j * bin_length_seconds + tstart)
                 if(Math.abs(t1 - timestamp) < HARDCODED_MINIMUM_BIN_LENGTH_SECONDS)
                     continue;
 
@@ -316,45 +319,62 @@ export class MSEED_Heatmap extends preact.Component<{
         this.props.on_events_hover?.(event_indices)
     }
 
-    $envelopes_on: Signal<boolean> = new Signal(false)
+    
+    /** Individual pixels when mode == 'envelope' */
     $envelope_items: Signal<EnvelopeHeatmapItem[]> = new Signal([])
-    $loading_envelope: Signal<boolean> = new Signal(false)
-    $loading_envelope_message: Signal<string> = new Signal('Loading...')
+
+    /** Individual pixels when mode == 'band_power_ratio' */
+    $bandratio_items: Signal<HeatmapDataItemWithFile[]> = new Signal([])
+
+    /** Whether to show the overlay on top of this component */
+    $overlay_on:      Signal<boolean> = new Signal(false)
+    /** What message to show in the overlay */
+    $overlay_message: Signal<string> = new Signal('Loading...')
 
     $action_label: Readonly<Signal<string>> = signals.computed(() => {
-        if(this.$loading_envelope.value)
+        if(this.$overlay_on.value)
             return 'Heatmap settings (loading...)'
         return 'Heatmap settings'
     })
 
 
-    // TODO
-    $action_disabled: Readonly<Signal<boolean>> = signals.computed(() => {
-        return this.$loading_envelope.value
-    })
 
 
+    on_new_settings = async () => {
+        const mode: HeatmapColorMode = this.settings.$heatmap_color_mode.value
+        
+        if(mode == 'envelope' && this.$envelope_items.value.length == 0)
+            this.compute_signal_envelope()
+        
+        if(mode == 'band_power_ratio' && this.$bandratio_items.value.length == 0) {
+            try {
+                this.$overlay_on.value = true
 
-    on_new_settings = () => {
-        if(!this.settings.$envelope_enabled.value) {
-            this.$envelopes_on.value = false
-            this.$envelope_items.value = []
-            return
+                const ratios: HeatmapDataItemWithFile[]|Error = 
+                    await this.compute_band_power_ratio()
+                if(ratios instanceof Error){
+                    console.error('Failed to compute band power ratios', ratios)
+                    return
+                }
+                this.$bandratio_items.value = ratios
+            } finally {
+                this.$overlay_on.value = false
+            }
         }
-
-        this.compute_signal_envelope()
     }
 
 
     compute_signal_envelope = async (): Promise<void> => {
-        if(this.$loading_envelope.value)
+        if(this.$overlay_on.value)
             return
 
         const files:MSeedMetadata[] = this.props.$mseed_meta.value
-        if(files.length == 0)
+        if(files.length == 0) {
+            this.$envelope_items.value = []
             return
+        }
 
-        this.$loading_envelope.value = true
+        this.$overlay_on.value = true
         try {
             const computed:EnvelopeHeatmapItem[]|Error =
                 await this.compute_envelope_heatmap_items()
@@ -364,11 +384,64 @@ export class MSEED_Heatmap extends preact.Component<{
             }
 
             this.$envelope_items.value = computed
-            this.$envelopes_on.value = true
         } finally {
-            this.$loading_envelope.value = false
+            this.$overlay_on.value = false
         }
     }
+
+    async compute_band_power_ratio(): Promise<HeatmapDataItemWithFile[]|Error> {
+        const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
+        const file_indices: Set<number> = 
+            new Set(this.$transformed_files.value.map(item => item.mseedindex))
+        
+        const f_min: number = this.settings.$envelope_bandpass_fmin.value
+        const f_max: number = this.settings.$envelope_bandpass_fmax.value
+
+
+        const promises: {promise:Promise<HeatmapDataItemWithFile[]>, index:number}[] = []
+
+        for(const index of file_indices) {
+            this.$overlay_message.value = 
+                `Loading ${index}/${file_indices.size}`
+
+            const mseed: MSEED_FileAndMeta|undefined = mseeds[index]
+            if(mseed == undefined){
+                console.error(`band power ratio: could not mseed #${index}`)
+                continue
+            }
+
+
+            const file: File = mseed.file
+            const signal:Float32Array|Error = await tremorwasm.read_data(file!)
+            if(signal instanceof Error)
+                // TODO: should continue and collect errors instead of returning on first failure
+                return signal as Error
+            
+            const fs: number = mseed.meta.samplerate
+            const window: number = Math.floor( HARDCODED_BIN_LENGTH_SECONDS * fs )
+            
+            const ratios_promise: Promise<Float32Array|Error> = 
+                (await this.#pool!.compute_band_power_ratio(signal, fs, f_min, f_max, window)).promise
+            const heatmapitems_promise: Promise<HeatmapDataItemWithFile[]> = 
+                convert_band_power_ratios_to_heatmap_items(
+                    ratios_promise, 
+                    this.$transformed.value.items,
+                    index, 
+                    mseed, 
+                )
+            promises.push({index, promise:heatmapitems_promise})
+        }
+
+        const all_items: HeatmapDataItemWithFile[] = []
+        for(const {index, promise} of promises) {
+            const items: HeatmapDataItemWithFile[] = await promise;
+            
+            all_items.push(...items)
+        }
+        return all_items
+    }
+
+
 
     #pool:WorkerPool|undefined;
     override componentWillMount(): void {
@@ -393,7 +466,7 @@ export class MSEED_Heatmap extends preact.Component<{
         const promises: {promise:Promise<EnvelopeHeatmapItem[]>, index:number}[] = []
         
         for(const index of file_indices) {
-            this.$loading_envelope_message.value = 
+            this.$overlay_message.value = 
                 `Loading ${index}/${file_indices.size}`
 
             const mseed: MSEED_FileAndMeta|undefined = mseeds[index]
@@ -532,13 +605,6 @@ function find_inference(
 }
 
 
-function compute_envelope_from_signal(x:Float32Array): Float32Array {
-    const output: Float32Array = new Float32Array(x.length)
-    for(let i:number = 0; i < x.length; i++) 
-        output[i] = Math.abs(x[i]!)
-    
-    return output;
-}
 
 function slice_signal_at_time(
     signal:         Float32Array, 
@@ -546,12 +612,11 @@ function slice_signal_at_time(
     start_seconds:  number, 
     length_seconds: number
 ): Float32Array|null {
-    const end_seconds: number = start_seconds + length_seconds;
+    start_seconds = Math.max(0, start_seconds)
+    const end_seconds: number = Math.max(0, start_seconds + length_seconds)
     
-    const index0: number = 
-        Math.min( Math.max(start_seconds * frequency, 0), signal.length )
-    const index1: number = 
-        Math.min( Math.max(end_seconds * frequency, 0), signal.length )
+    const index0: number = Math.min( start_seconds * frequency, signal.length )
+    const index1: number = Math.min( end_seconds * frequency, signal.length )
 
     if(index1 <= index0)
         return null
@@ -675,7 +740,7 @@ async function convert_envelope_to_heatmap_items(
 ): Promise<EnvelopeHeatmapItem[]> {
     const maybe_envelope: Float32Array|Error = await envelope;
     if(maybe_envelope instanceof Error) {
-        console.log('Error computing envelope in pool.', maybe_envelope)
+        console.error('Error computing envelope in pool.', maybe_envelope)
         return []
     }
     envelope = maybe_envelope;
@@ -710,21 +775,77 @@ async function convert_envelope_to_heatmap_items(
 }
 
 
+async function convert_band_power_ratios_to_heatmap_items(
+    ratios:     Float32Array|Promise<Float32Array|Error>,
+    og_items:   HeatmapDataItemWithFile[],
+    file_index: number,
+    mseed:      MSEED_FileAndMeta,
+): Promise<HeatmapDataItemWithFile[]> {
+    const maybe_ratios: Float32Array|Error = await ratios
+    if(maybe_ratios instanceof Error) {
+        console.error('Error computing band power ratios in pool.', maybe_ratios)
+        return []
+    }
+    ratios = maybe_ratios
+    
+    const ratio_items: HeatmapDataItemWithFile[] = []
+    for(const og_item of og_items) {
+        if(og_item.mseedindex != file_index)
+            continue
+
+        const t0: number = Math.round(mseed.meta.starttime.getTime() / 1000)
+        const ratio: Float32Array|null = slice_signal_at_time(
+            ratios, 
+            1/HARDCODED_BIN_LENGTH_SECONDS, 
+            og_item.timestamp - t0, 
+            HARDCODED_BIN_LENGTH_SECONDS
+        )
+        if(ratio == null) {
+            console.error(`Could not find the correct band ratio at time ${new Date(og_item.timestamp * 1000).toISOString()}`)
+            continue
+        }
+        if(ratio.length != 1)
+            console.warn(`Unexpected number of band ratios (${ratio.length}) at time ${new Date(og_item.timestamp * 1000).toISOString()}`)
+
+        ratio_items.push({
+            ...og_item,
+            color: ratio[0] ?? 0
+        })
+    }
+    return ratio_items
+}
+
+
+
+export type HeatmapColorMode =
+    'station_colors'
+    | 'envelope'
+    | 'band_power_ratio'
 
 export class MSEED_HeatmapSettings {
-    /** Heatmap colors represent envelope magnitude (takes time to compute) */
-    $envelope_enabled = new Signal<boolean>(false);
+    /** Select which value drives the heatmap color. */
+    $heatmap_color_mode: Signal<HeatmapColorMode> =
+        new Signal<HeatmapColorMode>('station_colors');
 
     /** Lower end of the bandpass filter to apply before envelope computation */
-    $envelope_bandpass_fmin = new Signal<number>(0.0);
+    $envelope_bandpass_fmin: Signal<number> = new Signal<number>(0.0);
 
     /** Upper end of the bandpass filter to apply before envelope computation */
-    $envelope_bandpass_fmax = new Signal<number>(99999);
+    $envelope_bandpass_fmax: Signal<number> = new Signal<number>(99999);
 
 
     to_component_settings_entries(): SettingsEntry[] {
         return [
-            {type:'boolean', label:'Show envelope', $signal: this.$envelope_enabled},
+            {
+                type:    'enum',
+                label:   'Heatmap color mode',
+                options: [
+                    {label: 'Station colors', value: 'station_colors'},
+                    {label: 'Envelope', value: 'envelope'},
+                    {label: 'Band Power Ratio', value: 'band_power_ratio'},
+                ],
+                $signal: this.$heatmap_color_mode,
+            },
             {
                 type:    'number',  
                 label:   'Envelope bandpass lower bound (Hz)', 
@@ -740,4 +861,3 @@ export class MSEED_HeatmapSettings {
         ]
     }
 }
-

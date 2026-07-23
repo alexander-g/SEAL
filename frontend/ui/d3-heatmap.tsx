@@ -759,6 +759,9 @@ export type RGB = {
 
 /** Viridis color palette interpolation (0..1 -> RGB) */
 export function viridis(t: number): RGB {
+    if (!Number.isFinite(t)) 
+        return {r:0, g:0, b:0}
+    
     const stops:[number, number, number][] = [
       [ 68,   1,  84],
       [ 59,  82, 139],
@@ -786,6 +789,9 @@ export function viridis(t: number): RGB {
 
 /** Magma color palette interpolation (0..1 -> RGB) */
 export function magma(t: number): RGB {
+    if (!Number.isFinite(t)) 
+        return {r:0, g:0, b:0}
+
     const stops: [number, number, number][] = [
       [  0,   0,   4],
       [ 59,  15, 112],

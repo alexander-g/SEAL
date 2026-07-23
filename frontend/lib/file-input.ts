@@ -134,6 +134,111 @@ export async function process_dropped_files(
 }
 
 
+/** Read a single time slice across multiple MSEED files. */
+export async function read_mseed_slice_across_files(
+    mseeds:              MSEED_FileAndMeta[],
+    selected_file_index: number,
+    slice_indices:       [number, number],
+): Promise<Float32Array|Error> {
+    try {
+        const selected_mseed: MSEED_FileAndMeta|undefined =
+            mseeds[selected_file_index]
+        if(selected_mseed == undefined)
+            return new Error(`Missing mseed file at ${selected_file_index}`)
+
+        const slice_start_index: number = slice_indices[0]
+        const slice_end_index: number = slice_indices[1]
+        if(slice_start_index < 0)
+            return new Error('slice_start_index must be >= 0')
+        if(slice_end_index <= slice_start_index)
+            return new Error('slice_end_index must be > slice_start_index')
+
+        const base_meta: MSeedMetadata = selected_mseed.meta
+        const samplerate: number = base_meta.samplerate
+        const output_length: number = Math.floor(slice_end_index)
+        if(output_length <= 0)
+            return new Error('slice_end_index must be > 0')
+
+        const base_start_ms: number = base_meta.starttime.getTime()
+        const slice_end_ms: number = base_start_ms
+            + (output_length / samplerate) * 1000
+
+        const output: Float32Array = new Float32Array(output_length)
+        const filled: Uint8Array = new Uint8Array(output_length)
+
+        const candidates: MSEED_FileAndMeta[] = []
+        let selected_candidate: MSEED_FileAndMeta|undefined = undefined
+        for(const mseed of mseeds) {
+            const meta: MSeedMetadata = mseed.meta
+            if(!matching_station_codes(meta, base_meta))
+                continue
+            if(meta.samplerate != samplerate)
+                return new Error('MSEED samplerate mismatch')
+
+            const meta_start_ms: number = meta.starttime.getTime()
+            const meta_end_ms: number = meta.endtime.getTime()
+            if(meta_end_ms <= base_start_ms)
+                continue
+            if(meta_start_ms >= slice_end_ms)
+                continue
+            candidates.push(mseed)
+            if(mseed === selected_mseed)
+                selected_candidate = mseed
+        }
+
+        candidates.sort((a: MSEED_FileAndMeta, b: MSEED_FileAndMeta) =>
+            a.meta.starttime.getTime() - b.meta.starttime.getTime()
+        )
+
+        const ordered_candidates: MSEED_FileAndMeta[] = []
+        if(selected_candidate)
+            ordered_candidates.push(selected_candidate)
+        for(const candidate of candidates) {
+            if(candidate === selected_candidate)
+                continue
+            ordered_candidates.push(candidate)
+        }
+
+        for(const mseed of ordered_candidates) {
+            const data: Float32Array|Error =
+                await tremorwasm.read_data(mseed.file)
+            if(data instanceof Error)
+                return data
+
+            const meta_start_ms: number = mseed.meta.starttime.getTime()
+            const offset_seconds: number = (meta_start_ms - base_start_ms) / 1000
+            const output_start_index: number =
+                Math.round(offset_seconds * samplerate)
+
+            if(output_start_index >= output_length)
+                break
+            if(output_start_index < 0)
+                continue
+
+            const available_samples: number = output_length - output_start_index
+            const copy_samples: number = Math.min(data.length, available_samples)
+            if(copy_samples <= 0)
+                continue
+
+            for(let i:number = 0; i < copy_samples; i++) {
+                const out_index: number = output_start_index + i
+                if(filled[out_index] == 1)
+                    continue
+                output[out_index] = data[i] ?? 0
+                filled[out_index] = 1
+            }
+        }
+
+        if(slice_start_index >= output_length)
+            return new Error('slice_start_index exceeds output length')
+
+        return output
+    } catch(e) {
+        return (e instanceof Error) ? e : new Error(String(e))
+    }
+}
+
+
 
 export 
 async function read_csv_inference_file(file:File): Promise<InferenceEvent[]|Error> {
@@ -157,6 +262,21 @@ async function read_csv_inference_file(file:File): Promise<InferenceEvent[]|Erro
     } catch {
         return new Error('Could not read inference csv file')
     }
+}
+
+
+/** Check network, station, channel match. */
+function matching_station_codes(
+    meta0: MSeedMetadata,
+    meta1: MSeedMetadata,
+): boolean {
+    if(meta0.network != meta1.network)
+        return false
+    if(meta0.station != meta1.station)
+        return false
+    if(meta0.channel != meta1.channel)
+        return false
+    return true
 }
 
 export function parse_station_code_from_filename(input: string): string|null {
@@ -205,4 +325,3 @@ type FileResult = {
     type:    'unknown'
     filename: string
 }
-

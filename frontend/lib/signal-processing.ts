@@ -14,6 +14,35 @@ export type FFTOutput = {
     fftoutput: Float32Array;
 }
 
+export type STFTOutput = {
+    /** Complex one-sided non-symmetric spectrum per frame */
+    frames: Float32Array[];
+
+    /** Frequencies for the one-sided spectrum */
+    f_axis: Float32Array;
+
+    /** Time axis (seconds from start) */
+    t_axis: Float32Array;
+
+    /** FFT length */
+    n_fft: number;
+
+    /** Frame size */
+    window_size: number;
+
+    /** Hop size between frames */
+    hop_size: number;
+
+    /** Analysis/synthesis window or null if none is used */
+    window: Float32Array|null;
+
+    /** Original signal length */
+    signal_length: number;
+
+    /** Sampling rate */
+    fs: number;
+}
+
 export function fft(signal:Float32Array, fs:number): FFTOutput {
     signal = pad_to_next_power_of_two(signal)
     const n: number = signal.length
@@ -30,6 +59,115 @@ export function fft(signal:Float32Array, fs:number): FFTOutput {
         f_axis[i] = i / f_axis.length  * fs/2;
     }
     return {spectrum, f_axis, fftoutput:fftoutput.slice(0,n)}
+}
+
+/** Short-time Fourier transform */
+export function stft(
+    signal:      Float32Array,
+    fs:          number,
+    window_size: number = 1024,
+    hop_size:    number = 256,
+    n_fft:       number = 1024,
+    windowtype:  'hann'|null = 'hann',
+): STFTOutput | Error {
+    if(window_size <= 0 || hop_size <= 0 || n_fft <= 0)
+        return new Error('stft: window_size, hop_size, n_fft must be > 0')
+    if(n_fft < window_size)
+        return new Error('stft: n_fft must be >= window_size')
+    if(signal.length == 0)
+        return new Error('stft: signal is empty')
+    if(!is_power_of_two(n_fft))
+        return new Error('stft: n_fft must be a power of two')
+
+    const window: Float32Array|null = 
+        windowtype == 'hann' ? create_hann_window(window_size) : null;
+    const frame_count: number = 
+        compute_frame_count_for_stft(signal.length, window_size, hop_size)
+    const padded_length: number =
+        (frame_count - 1) * hop_size + window_size
+    const padded_signal: Float32Array = new Float32Array(padded_length)
+    padded_signal.set(signal, 0)
+
+    const fft_engine = new fftjs(n_fft)
+    const frames: Float32Array[] = []
+    for(let frame_index:number = 0; frame_index < frame_count; frame_index++) {
+        const start: number = frame_index * hop_size
+        const frame_padded: Float32Array = new Float32Array(n_fft)
+
+        for(let i:number = 0; i < window_size; i++) 
+            frame_padded[i] = padded_signal[start + i]! * (window? window[i]! : 1)
+
+        const fftoutput: Float32Array = new Float32Array(n_fft * 2)
+        fft_engine.realTransform(fftoutput, frame_padded)
+        frames.push(fftoutput.slice(0, n_fft))
+    }
+
+    const f_axis: Float32Array = new Float32Array(n_fft / 2)
+    for(let i:number = 0; i < f_axis.length; i++)
+        f_axis[i] = i / (f_axis.length - 1) * fs / 2
+
+    const t_axis: Float32Array = new Float32Array(frame_count)
+    for(let i:number = 0; i < frame_count; i++)
+        t_axis[i] = i * hop_size / fs
+
+    return {
+        frames,
+        f_axis,
+        t_axis,
+        n_fft,
+        window_size,
+        hop_size,
+        window,
+        signal_length: signal.length,
+        fs,
+    }
+}
+
+/** Inverse short-time Fourier transform */
+export function istft(stft_output: STFTOutput): Float32Array | Error {
+    if(stft_output.frames.length == 0)
+        return new Error('istft: stft_output.frames is empty')
+    if(stft_output.n_fft < stft_output.window_size)
+        return new Error('istft: n_fft must be >= window_size')
+
+    const frame_count: number = stft_output.frames.length
+    const output_length: number =
+        (frame_count - 1) * stft_output.hop_size + stft_output.window_size
+    const output: Float32Array = new Float32Array(output_length)
+    const window_sum: Float32Array = new Float32Array(output_length)
+    const fft_engine = new fftjs(stft_output.n_fft)
+
+    for(let frame_index:number = 0; frame_index < frame_count; frame_index++) {
+        const spectrum = new Float32Array(stft_output.n_fft *2)
+        spectrum.set(stft_output.frames[frame_index]!)
+        fft_engine.completeSpectrum(spectrum)
+        
+        if(spectrum.length != stft_output.n_fft * 2)
+            return new Error('istft: invalid spectrum length')
+
+        const ifftoutput: Float32Array =
+            new Float32Array(stft_output.n_fft * 2)
+        fft_engine.inverseTransform(ifftoutput, spectrum)
+
+        const frame: Float32Array =
+            fft_engine.fromComplexArray(ifftoutput, undefined)
+
+        const start: number = frame_index * stft_output.hop_size
+        for(let i:number = 0; i < stft_output.window_size; i++) {
+            const window_i: number = stft_output.window? stft_output.window[i]! : 1
+            const value: number = frame[i]! * window_i
+            const index: number = start + i
+            output[index]! += value
+            window_sum[index]! += window_i! * window_i!
+        }
+    }
+
+    if(stft_output.window != null)
+        for(let i:number = 0; i < output.length; i++)
+            if(window_sum[i]! > 0)
+                output[i] = output[i]! / window_sum[i]!
+
+    return output.slice(0, stft_output.signal_length)
 }
 
 
@@ -81,16 +219,27 @@ export function bandpass_filter_fir(
     f_max:  number,
     order:  number = 100
 ): Float32Array {
+    if(f_min <= 0 && f_max > fs/2)
+        return signal
+
     const n: number = signal.length;
     signal = reflect_pad_and_taper_signal_both_sides(signal, fs, 3, 10)
 
     const fir_calculator = new fili.FirCoeffs();
-    const fir_coeffs = fir_calculator.bandpass({
-        order: order,
-        Fs:    fs,
-        F1:    f_min,
-        F2:    f_max,
-    });
+    let fir_coeffs: unknown;
+    if(f_min <= 0)
+        fir_coeffs = fir_calculator.lowpass({
+            order: order,
+            Fs:    fs,
+            Fc:    f_max,
+        });
+    else
+        fir_coeffs = fir_calculator.bandpass({
+            order: order,
+            Fs:    fs,
+            F1:    f_min,
+            F2:    f_max,
+        });
     const fir_filter = new fili.FirFilter(fir_coeffs);
     const output: number[] = fir_filter.simulate(signal)
     
@@ -126,6 +275,10 @@ export function lowpass_filter_fir(
 
 function next_power_of_two(i:number): number {
     return 2 ** Math.ceil( Math.log2(i) )
+}
+
+function is_power_of_two(i: number): boolean {
+    return next_power_of_two(i) == i
 }
 
 function pad_to_next_power_of_two(x:Float32Array): Float32Array {
@@ -256,4 +409,80 @@ export function compute_envelope(
 }
 
 
+/** Compute how much a frequency band contributes to the total signal */
+export function compute_band_power_ratio(
+    signal: Float32Array,
+    fs:     number,
+    f_min:  number,
+    f_max:  number,
+    window: number,
+): Float32Array {
+    if(signal.length == 0 || window <= 0)
+        return new Float32Array(0)
 
+    // no overlap
+    const hop:  number = window
+    const nfft: number = next_power_of_two(window)
+    const stft_output: STFTOutput|Error = stft(signal, fs, window, hop, nfft)
+    if(stft_output instanceof Error)
+        // should not happen
+        return new Float32Array(0)
+    
+    
+    const ratios: number[] = []
+    for(let i:number = 0; i < stft_output.frames.length; i++) {
+        const frame: Float32Array = complex2real( stft_output.frames[i]! )
+
+        let sum_total: number = 0;
+        let sum_band:  number = 0;
+        for(let j:number = 0; j < stft_output.f_axis.length; j++) {
+            const value:number = frame[j] ?? 0
+
+            sum_total += value;
+
+            const f:number = stft_output.f_axis[j]!
+            if(f_min <= f && f <= f_max)
+                sum_band += value;
+            
+        }
+        const ratio:number = sum_band / sum_total;
+        ratios.push(ratio)
+    }
+
+    return Float32Array.from(ratios)
+}
+
+
+function complex2real(complex:Float32Array): Float32Array {
+    const real = new Float32Array(complex.length / 2)
+    for(let i:number = 0; i < real.length; i++)
+        real[i] = Math.hypot(complex[i*2]!, complex[i*2+1]!)
+    return real
+}
+
+
+
+function create_hann_window(n:number): Float32Array {
+    const window: Float32Array = new Float32Array(n)
+    if(n == 1) {
+        window[0] = 1
+        return window
+    }
+
+    for(let i:number = 0; i < n; i++)
+        window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)))
+    return window
+}
+
+function compute_frame_count_for_stft(
+    signal_length: number,
+    window_size: number,
+    hop_size: number,
+): number {
+    if(signal_length <= window_size)
+        return 1
+
+    const remaining: number = signal_length - window_size
+    return Math.floor(remaining / hop_size) + 1 +
+        (remaining % hop_size == 0 ? 0 : 1)
+}

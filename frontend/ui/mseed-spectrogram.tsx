@@ -17,8 +17,8 @@ export type MSEED_Data = {
     /** Time of the first signal sample */
     start_time: Date;
 
-    /** Which slice of the signal to visualize */
-    slice_indices: [number, number];
+    /** Which first index within the signal to visualize */
+    slice_start_index: number;
 
     /** Network-Station-Location-Channel code of the displayed file */
     code: string;
@@ -33,6 +33,10 @@ type MSEED_SpectrogramProps = {
 
     /** Flag indicating that new data is being loaded */
     $loading: Readonly<Signal<boolean>>;
+
+    /** The length of the signal to be displayed in seconds. 
+     *  Shared with other components. Both input and output. */
+    $slice_length?: Signal<number>;
 }
 
 
@@ -65,7 +69,8 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     }
 
     /** Parameters modified by the user. */
-    settings: MSEED_SpectrogramHeatmapSettings = new MSEED_SpectrogramHeatmapSettings()
+    settings: MSEED_SpectrogramHeatmapSettings = 
+        new MSEED_SpectrogramHeatmapSettings(this.props.$slice_length)
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted below
@@ -75,19 +80,19 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     #_1 = signals.effect( (async () => {
         // TODO: reset plot, in case of errors later
 
-        // signal subscriptions
+        // signal subscriptions first
         const data: MSEED_Data|null = this.props.$data.value;
         const f_min: number = this.settings.$f_min.value
         const f_max: number = this.settings.$f_max.value
+        const signal_length: number = this.settings.$slice_length.value
 
         if(data == null) {
             console.log('TODO: reset spectrogram')
             return;
         }
-        
 
-        const [i0, _i1] = data.slice_indices
-        const i1:number = i0 + this.settings.$slice_length.value * data.fs
+        const i0:number = data.slice_start_index
+        const i1:number = i0 + signal_length * data.fs
 
         const spectrogram_data: SpectrogramData|Error =
             await this.props.$pyodide.value.create_spectrogram_for_visualization(
@@ -153,7 +158,11 @@ export class MSEED_SpectrogramHeatmapSettings {
     $f_max = new Signal<number>(99999)
 
     /** How much of the signal to show */
-    $slice_length = new Signal<number>(300)
+    $slice_length: Signal<number>;
+
+    constructor($slice_length?:Signal<number>) {
+        this.$slice_length = $slice_length ?? new Signal(300);
+    }
 
     to_component_settings_entries(): SettingsEntry[] {
         return [

@@ -198,14 +198,22 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             .range([dimensions.plot_height, 0])
             .nice()
 
-        const line_generator: d3.Line<number> = d3.line<number>()
-            .x((_value: number, index: number) => {
-                const time_ms: number =
-                    start_ms + index * sample_period_ms
-                return x_scale(new Date(time_ms))
-            })
-            .y((value: number) => y_scale(value))
-        const line_path: string | null = line_generator(data)
+        const downsampled: DownsampledPoint[] | Error =
+            downsample_min_max(data, Math.floor(dimensions.plot_width * 1.5))
+        if(downsampled instanceof Error) {
+            this.#clear_plot()
+            return
+        }
+
+        const line_generator: d3.Line<DownsampledPoint> =
+            d3.line<DownsampledPoint>()
+                .x((point: DownsampledPoint) => {
+                    const time_ms: number =
+                        start_ms + point.sample_index * sample_period_ms
+                    return x_scale(new Date(time_ms))
+                })
+                .y((point: DownsampledPoint) => y_scale(point.value))
+        const line_path: string | null = line_generator(downsampled)
 
         const tick_format = (d: Date, index:number) => 
             (index == 0)? strftime_ISO8601_datetime(d) : strftime_ISO8601_time(d)
@@ -345,4 +353,66 @@ function compute_standard_deviation(data: Float32Array): number | Error {
     }
     variance /= n_samples
     return Math.sqrt(variance)
+}
+
+
+type DownsampledPoint = {
+    sample_index: number,
+    value: number,
+}
+
+/** Downsample by min/max per pixel bucket to keep extrema */
+function downsample_min_max(
+    data: Float32Array,
+    target_bins: number,
+): DownsampledPoint[] | Error {
+    if(data.length == 0)
+        return new Error('No data to plot.')
+    if(target_bins <= 0)
+        return new Error('Invalid plot width.')
+
+    const max_points: number = target_bins * 2
+    if(data.length <= max_points)
+        return Array.from(data).map( (x, i) => ({sample_index:i, value:x}) )
+
+    const bucket_size: number = Math.ceil(data.length / target_bins)
+    const points: DownsampledPoint[] = []
+    for(let start_index: number = 0; start_index < data.length;
+        start_index += bucket_size) {
+        const stop_index: number = Math.min(
+            start_index + bucket_size,
+            data.length,
+        )
+        let min_value: number = data[start_index]!
+        let max_value: number = data[start_index]!
+        let min_index: number = start_index
+        let max_index: number = start_index
+
+        for(let index: number = start_index + 1; index < stop_index; index++) {
+            const value: number = data[index]!
+            if(value < min_value) {
+                min_value = value
+                min_index = index
+            }
+            if(value > max_value) {
+                max_value = value
+                max_index = index
+            }
+        }
+
+        if(min_index == max_index) {
+            points.push({ sample_index: min_index, value: min_value })
+            continue
+        }
+
+        if(min_index < max_index) {
+            points.push({ sample_index: min_index, value: min_value })
+            points.push({ sample_index: max_index, value: max_value })
+        } else {
+            points.push({ sample_index: max_index, value: max_value })
+            points.push({ sample_index: min_index, value: min_value })
+        }
+    }
+
+    return points
 }

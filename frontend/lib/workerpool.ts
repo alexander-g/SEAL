@@ -2,6 +2,7 @@ import { is_deno } from '../lib/util.ts'
 
 import type { 
     ComputeEnvelopeTask, 
+    ComputeBandPowerRatioTask,
     Task,
     WorkerResult,
 } from './worker.ts'
@@ -52,6 +53,30 @@ export class WorkerPool {
         } )
     }
 
+    compute_band_power_ratio(
+        signal: Float32Array, 
+        fs:     number, 
+        f_min:  number, 
+        f_max:  number,
+        window: number,
+    ): Promise<{promise: Promise<Float32Array|Error>}> {
+        return new Promise( (promise_resolve) => {
+            const task_id:number = this.next_id++;
+            const task: Task = 
+                {type:'band-power-ratio', signal, fs, f_min, f_max, task_id, window}
+
+            const result_promise: PromiseWithResolve<Float32Array|Error> =
+                create_promise_to_promise<Float32Array|Error>()
+            this.queue.push({
+                task,
+                worker:        undefined,
+                start_resolve: promise_resolve,
+                result_promise,
+            })
+            this.run_next()
+        } )
+    }
+
 
 
     
@@ -64,7 +89,13 @@ export class WorkerPool {
         const message: WorkerResult = event.data
 
         const job: Job|undefined = this.pending[message.task_id]
-        job?.result_promise?.resolve(message.envelope)
+        if(message.type == 'compute-envelope')
+            job?.result_promise?.resolve(message.envelope)
+        else if(message.type == 'band-power-ratio')
+            job?.result_promise?.resolve(message.ratio)
+        else
+            console.error('Received unknown worker result: ', message)
+
         if(job?.worker != undefined)
             job.worker.busy = false
         if (job)
@@ -120,7 +151,15 @@ type ComputeEnvelopeJob = {
     result_promise: PromiseWithResolve<Float32Array|Error>;
 }
 
-type Job = ComputeEnvelopeJob;
+type ComputeBandPowerRatioJob = {
+    task:    ComputeBandPowerRatioTask;
+    worker:  WorkerWithBusyFlag|undefined;
+    
+    start_resolve:  (result:{promise:Promise<Float32Array|Error>}) => void;
+    result_promise: PromiseWithResolve<Float32Array|Error>;
+}
+
+type Job = ComputeEnvelopeJob | ComputeBandPowerRatioJob;
 
 
 
