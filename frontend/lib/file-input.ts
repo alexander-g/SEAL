@@ -167,6 +167,7 @@ export async function read_mseed_slice_across_files(
         const filled: Uint8Array = new Uint8Array(output_length)
 
         const candidates: MSEED_FileAndMeta[] = []
+        let selected_candidate: MSEED_FileAndMeta|undefined = undefined
         for(const mseed of mseeds) {
             const meta: MSeedMetadata = mseed.meta
             if(!matching_station_codes(meta, base_meta))
@@ -181,13 +182,24 @@ export async function read_mseed_slice_across_files(
             if(meta_start_ms >= slice_end_ms)
                 continue
             candidates.push(mseed)
+            if(mseed === selected_mseed)
+                selected_candidate = mseed
         }
 
         candidates.sort((a: MSEED_FileAndMeta, b: MSEED_FileAndMeta) =>
             a.meta.starttime.getTime() - b.meta.starttime.getTime()
         )
 
-        for(const mseed of candidates) {
+        const ordered_candidates: MSEED_FileAndMeta[] = []
+        if(selected_candidate)
+            ordered_candidates.push(selected_candidate)
+        for(const candidate of candidates) {
+            if(candidate === selected_candidate)
+                continue
+            ordered_candidates.push(candidate)
+        }
+
+        for(const mseed of ordered_candidates) {
             const data: Float32Array|Error =
                 await tremorwasm.read_data(mseed.file)
             if(data instanceof Error)
@@ -201,7 +213,7 @@ export async function read_mseed_slice_across_files(
             if(output_start_index >= output_length)
                 break
             if(output_start_index < 0)
-                return new Error('Overlapping MSEED time ranges')
+                continue
 
             const available_samples: number = output_length - output_start_index
             const copy_samples: number = Math.min(data.length, available_samples)
@@ -211,7 +223,7 @@ export async function read_mseed_slice_across_files(
             for(let i:number = 0; i < copy_samples; i++) {
                 const out_index: number = output_start_index + i
                 if(filled[out_index] == 1)
-                    return new Error('Overlapping MSEED time ranges')
+                    continue
                 output[out_index] = data[i] ?? 0
                 filled[out_index] = 1
             }

@@ -76,6 +76,8 @@ export function stft(
         return new Error('stft: n_fft must be >= window_size')
     if(signal.length == 0)
         return new Error('stft: signal is empty')
+    if(!is_power_of_two(n_fft))
+        return new Error('stft: n_fft must be a power of two')
 
     const window: Float32Array|null = 
         windowtype == 'hann' ? create_hann_window(window_size) : null;
@@ -100,9 +102,9 @@ export function stft(
         frames.push(fftoutput.slice(0, n_fft))
     }
 
-    const f_axis: Float32Array = new Float32Array(n_fft / 2 + 1)
+    const f_axis: Float32Array = new Float32Array(n_fft / 2)
     for(let i:number = 0; i < f_axis.length; i++)
-        f_axis[i] = i * fs / n_fft
+        f_axis[i] = i / (f_axis.length - 1) * fs / 2
 
     const t_axis: Float32Array = new Float32Array(frame_count)
     for(let i:number = 0; i < frame_count; i++)
@@ -275,6 +277,10 @@ function next_power_of_two(i:number): number {
     return 2 ** Math.ceil( Math.log2(i) )
 }
 
+function is_power_of_two(i: number): boolean {
+    return next_power_of_two(i) == i
+}
+
 function pad_to_next_power_of_two(x:Float32Array): Float32Array {
     const n: number = next_power_of_two(x.length)
     if(n == x.length)
@@ -402,6 +408,57 @@ export function compute_envelope(
     return signal;
 }
 
+
+/** Compute how much a frequency band contributes to the total signal */
+export function compute_band_power_ratio(
+    signal: Float32Array,
+    fs:     number,
+    f_min:  number,
+    f_max:  number,
+    window: number,
+): Float32Array {
+    if(signal.length == 0 || window <= 0)
+        return new Float32Array(0)
+
+    // no overlap
+    const hop:  number = window
+    const nfft: number = next_power_of_two(window)
+    const stft_output: STFTOutput|Error = stft(signal, fs, window, hop, nfft)
+    if(stft_output instanceof Error)
+        // should not happen
+        return new Float32Array(0)
+    
+    
+    const ratios: number[] = []
+    for(let i:number = 0; i < stft_output.frames.length; i++) {
+        const frame: Float32Array = complex2real( stft_output.frames[i]! )
+
+        let sum_total: number = 0;
+        let sum_band:  number = 0;
+        for(let j:number = 0; j < stft_output.f_axis.length; j++) {
+            const value:number = frame[j] ?? 0
+
+            sum_total += value;
+
+            const f:number = stft_output.f_axis[j]!
+            if(f_min <= f && f <= f_max)
+                sum_band += value;
+            
+        }
+        const ratio:number = sum_band / sum_total;
+        ratios.push(ratio)
+    }
+
+    return Float32Array.from(ratios)
+}
+
+
+function complex2real(complex:Float32Array): Float32Array {
+    const real = new Float32Array(complex.length / 2)
+    for(let i:number = 0; i < real.length; i++)
+        real[i] = Math.hypot(complex[i*2]!, complex[i*2+1]!)
+    return real
+}
 
 
 

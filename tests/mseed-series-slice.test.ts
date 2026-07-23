@@ -110,6 +110,30 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
         for(let i:number = data.length - extra_samples; i < data.length; i++)
             assert(data[i] == 0)
     })
+
+    await t.step('overlap-does-not-error', async () => {
+        const overlapping_files: string[] = [
+            STA1_FILES[0]!,
+            STA1_FILES[0]!,
+            STA1_FILES[1]!,
+        ]
+        const mseeds: MSEED_FileAndMeta[]|Error =
+            await build_mseed_series(overlapping_files)
+        assert(!(mseeds instanceof Error))
+
+        const slice_end_index: number = compute_total_samples(mseeds)
+
+        const data: Float32Array|Error = await read_mseed_slice_across_files(
+            mseeds,
+            0,
+            [0, slice_end_index],
+        )
+        assert(!(data instanceof Error))
+        assert(data.length == slice_end_index)
+
+        const mean: number = compute_mean(data)
+        assert(Math.abs(mean - 1) < 0.2)
+    })
 })
 
 

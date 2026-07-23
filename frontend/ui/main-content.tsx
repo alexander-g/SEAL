@@ -366,7 +366,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             slice_end_index,
         )
         if(result instanceof Error)
-            console.warn(result.message)
+            console.warn(result)
     }) as () => void )
 
     /** Read a signal slice and refresh all plots. */
@@ -469,7 +469,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             i1,
         )
         if(result instanceof Error)
-            console.warn(result.message)
+            console.warn(result)
     }
 
 
