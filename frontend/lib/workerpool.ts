@@ -6,6 +6,7 @@ import type {
     Task,
     WorkerResult,
 } from './worker.ts'
+import type { FrequencyBand } from './signal-processing.ts'
 
 
 
@@ -54,16 +55,23 @@ export class WorkerPool {
     }
 
     compute_band_power_ratio(
-        signal: Float32Array, 
-        fs:     number, 
-        f_min:  number, 
-        f_max:  number,
-        window: number,
+        signal:           Float32Array, 
+        fs:               number, 
+        window:           number,
+        numerator_band:   FrequencyBand,
+        denominator_band: FrequencyBand,
     ): Promise<{promise: Promise<Float32Array|Error>}> {
         return new Promise( (promise_resolve) => {
             const task_id:number = this.next_id++;
-            const task: Task = 
-                {type:'band-power-ratio', signal, fs, f_min, f_max, task_id, window}
+            const task: Task = {
+                type:'band-power-ratio', 
+                signal, 
+                fs, 
+                window,
+                numerator_band,
+                denominator_band,
+                task_id, 
+            }
 
             const result_promise: PromiseWithResolve<Float32Array|Error> =
                 create_promise_to_promise<Float32Array|Error>()

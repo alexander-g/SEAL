@@ -1,4 +1,8 @@
-import { compute_band_power_ratio, compute_envelope } from "./signal-processing.ts"
+import { 
+    compute_band_power_ratio, 
+    compute_envelope ,
+    type FrequencyBand,
+} from "./signal-processing.ts"
 
 
 
@@ -13,12 +17,12 @@ export type ComputeEnvelopeTask = {
 }
 
 export type ComputeBandPowerRatioTask = {
-    type:    'band-power-ratio'
-    signal:  Float32Array;
-    fs:      number;
-    f_min:   number;
-    f_max:   number;
-    window:  number;
+    type:             'band-power-ratio'
+    signal:           Float32Array;
+    fs:               number;
+    window:           number;
+    numerator_band:   FrequencyBand,
+    denominator_band: FrequencyBand,
 
     task_id: number;
 }
@@ -66,10 +70,10 @@ self.onmessage = async (e:MessageEvent) => {
     } else if(task.type == 'band-power-ratio') {
         const ratio: Float32Array = compute_band_power_ratio(
             task.signal, 
-            task.fs, 
-            task.f_min, 
-            task.f_max, 
-            task.window
+            task.fs,
+            task.window,
+            task.numerator_band,
+            task.denominator_band,
         )
         result = {
             type:    'band-power-ratio',
