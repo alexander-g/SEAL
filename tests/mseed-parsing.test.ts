@@ -21,6 +21,8 @@ const MSEED_FILES: string[] = [
     path.fromFileUrl(import.meta.resolve('./assets/synthetic-f64.mseed')),
     // + multitrace
     path.fromFileUrl(import.meta.resolve('./assets/synthetic-f64-dual-trace.mseed')),
+    // some other error
+    path.fromFileUrl(import.meta.resolve('./assets/2019-01-01T00:26:07-CN.VGZ..HHN'))
 ]
 
 const NOT_A_MSEED:string = 
@@ -60,6 +62,20 @@ Deno.test('mseed-parsing0', async (t:Deno.TestContext) => {
         const blob = new Blob([notmseed])
         const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
         assert(output instanceof Error)
+    })
+
+    await t.step('wrong-samplerate', async () => {
+        const mseeddata= Deno.readFileSync(MSEED_FILES[4]!)
+        assert( is_mseed( new DataView(mseeddata.buffer) ) )
+    
+        const blob = new Blob([mseeddata])
+        const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
+        assert(!(output instanceof Error))
+
+        // according to obspy:
+        assert( Math.abs(output.samplerate - 99.99) < 0.1 )
+        assert(output.starttime.toISOString().startsWith('2019-01-01T00:26'))
+        assert(output.endtime.toISOString().startsWith('2019-01-01T00:31'))
     })
 })
 

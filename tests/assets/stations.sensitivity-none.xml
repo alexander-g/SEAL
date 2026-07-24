@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<FDSNStationXML xmlns="http://www.fdsn.org/xml/station/1" schemaVersion="1.2">
+  <Source>ObsPy 1.4.2</Source>
+  <Module>ObsPy 1.4.2</Module>
+  <ModuleURI>https://www.obspy.org</ModuleURI>
+  <Created>2026-07-24T07:27:48.832188Z</Created>
+  <Network code="PO">
+    <Station code="VI01">
+      <Latitude unit="DEGREES">50.354771</Latitude>
+      <Longitude unit="DEGREES">-125.919724</Longitude>
+      <Elevation unit="METERS">0.0</Elevation>
+      <Site>
+        <Name></Name>
+      </Site>
+      <Channel code="BHE" locationCode="">
+        <Latitude unit="DEGREES">50.354771</Latitude>
+        <Longitude unit="DEGREES">-125.919724</Longitude>
+        <Elevation unit="METERS">0.0</Elevation>
+        <Depth unit="METERS">0.0</Depth>
+        <Response>
+          <InstrumentSensitivity>
+            <Value>None</Value>
+            <Frequency>None</Frequency>
+            <InputUnits>
+              <Name>M/S</Name>
+              <Description>Velocity in Meters Per Second</Description>
+            </InputUnits>
+            <OutputUnits>
+              <Name>COUNTS</Name>
+              <Description>Digital Counts</Description>
+            </OutputUnits>
+          </InstrumentSensitivity>
+        </Response>
+      </Channel>
+    </Station>
+  </Network>
+</FDSNStationXML>

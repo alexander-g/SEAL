@@ -144,15 +144,16 @@ function read_ascii(view: DataView, offset: number, length: number): string {
 function compute_samplerate(factor: number, multiplier: number): number {
     const f:number = factor === 0 ? 1 : factor;
     const m:number = multiplier === 0 ? 1 : multiplier;
+    const f_abs:number = Math.abs(f);
+    const m_abs:number = Math.abs(m);
 
-    let rate:number = Math.abs(f) * Math.abs(m);
-
-    if(f < 0)
-        rate = 1 / rate;
-    if(m < 0) 
-        rate = 1 / rate;
-
-    return rate;
+    if(f > 0 && m > 0)
+        return f_abs * m_abs;
+    if(f > 0 && m < 0)
+        return f_abs / m_abs;
+    if(f < 0 && m > 0)
+        return m_abs / f_abs;
+    return 1 / (f_abs * m_abs);
 }
 
 /** Day of year to a Date */
