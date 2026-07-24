@@ -409,13 +409,19 @@ export function compute_envelope(
 }
 
 
+export type FrequencyBand = {
+    min: number;
+    max: number;
+}
+
+
 /** Compute how much a frequency band contributes to the total signal */
 export function compute_band_power_ratio(
-    signal: Float32Array,
-    fs:     number,
-    f_min:  number,
-    f_max:  number,
-    window: number,
+    signal:           Float32Array,
+    fs:               number,
+    window:           number,
+    numerator_band:   FrequencyBand,
+    denominator_band: FrequencyBand = {min:0, max:Infinity}
 ): Float32Array {
     if(signal.length == 0 || window <= 0)
         return new Float32Array(0)
@@ -433,19 +439,19 @@ export function compute_band_power_ratio(
     for(let i:number = 0; i < stft_output.frames.length; i++) {
         const frame: Float32Array = complex2real( stft_output.frames[i]! )
 
-        let sum_total: number = 0;
-        let sum_band:  number = 0;
+        let sum_denominator: number = 0;
+        let sum_numerator:   number = 0;
         for(let j:number = 0; j < stft_output.f_axis.length; j++) {
             const value:number = frame[j] ?? 0
 
-            sum_total += value;
-
             const f:number = stft_output.f_axis[j]!
-            if(f_min <= f && f <= f_max)
-                sum_band += value;
+            if(numerator_band.min <= f && f <= numerator_band.max)
+                sum_numerator += value;
             
+            if(denominator_band.min <= f && f <= denominator_band.max)
+                sum_denominator += value;
         }
-        const ratio:number = sum_band / sum_total;
+        const ratio:number = sum_numerator / sum_denominator;
         ratios.push(ratio)
     }
 

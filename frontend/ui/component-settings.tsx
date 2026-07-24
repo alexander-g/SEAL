@@ -137,6 +137,8 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
 
         const entry_components: JSX.Element[] = []
         for(const [entry_index, entry] of this.props.settings_entries.entries()) {
+            if(entry.$show_if != undefined && !entry.$show_if.value)
+                continue
             if(entry.type == 'boolean')
                 entry_components.push( 
                     <BooleanSettingsEntryComponent
@@ -234,20 +236,29 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
 
 
 
+/** Signal that carries a second temporary signal that represents the current
+ *  temporary value in the settings panel, that has not been 'OK'd yet. */
+export class SignalWithDraftValue<T> extends Signal<T> {
+    $draft = new Signal<T>(this.value)
+}
+
+type SignalMaybeWithDraftValue<T> = Signal<T> | SignalWithDraftValue<T>
 
 
 
 type BooleanSettingsEntry = {
     type:    'boolean';
     label:   string;
-    $signal: Signal<boolean>
+    $signal: SignalMaybeWithDraftValue<boolean>
+    $show_if?: Readonly<Signal<boolean>>
 }
 
 type NumberSettingsEntry = {
     type:    'number';
     label:   string;
     step:    number;
-    $signal: Signal<number>
+    $signal: SignalMaybeWithDraftValue<number>
+    $show_if?: Readonly<Signal<boolean>>
 }
 
 type EnumSettingsOption = {
@@ -260,7 +271,8 @@ type EnumSettingsEntry = {
     type:    'enum';
     label:   string;
     options: EnumSettingsOption[];
-    $signal: Signal<string>
+    $signal: SignalMaybeWithDraftValue<string>
+    $show_if?: Readonly<Signal<boolean>>
 }
 
 export type SettingsAction = {
@@ -297,11 +309,19 @@ class BooleanSettingsEntryComponent extends preact.Component<BooleanSettingsEntr
                 checked  = {this.draft_value}
                 onChange = {
                     (event:preact.TargetedEvent<HTMLInputElement>) =>
-                        this.draft_value = 
+                        this.update_draft_value(
                             (event.target as HTMLInputElement).checked
+                        )
                 }
             />
         </label>
+    }
+
+    private update_draft_value = (value: boolean): void => {
+        this.draft_value = value
+
+        if('$draft' in this.props.$signal)
+            this.props.$signal.$draft.value = value
     }
 }
 
@@ -326,11 +346,19 @@ class NumberSettingsEntryComponent extends preact.Component<NumberSettingsEntry>
                 style   = {input_css}
                 onChange = { 
                     (event:preact.TargetedEvent<HTMLInputElement>) =>
-                        this.draft_value = 
+                        this.update_draft_value(
                             Number((event.target as HTMLInputElement).value)
+                        )
                  }
             />
         </label>
+    }
+
+    private update_draft_value = (value: number): void => {
+        this.draft_value = value
+
+        if('$draft' in this.props.$signal)
+            this.props.$signal.$draft.value = value
     }
 } 
 
@@ -354,8 +382,9 @@ class EnumSettingsEntryComponent extends preact.Component<EnumSettingsEntry> {
                 style    = {input_css}
                 onChange = {
                     (event:preact.TargetedEvent<HTMLSelectElement>) =>
-                        this.draft_value =
+                        this.update_draft_value(
                             (event.target as HTMLSelectElement).value
+                        )
                 }
             >
                 {
@@ -367,6 +396,13 @@ class EnumSettingsEntryComponent extends preact.Component<EnumSettingsEntry> {
                 }
             </select>
         </label>
+    }
+
+    private update_draft_value = (value: string): void => {
+        this.draft_value = value
+
+        if('$draft' in this.props.$signal)
+            this.props.$signal.$draft.value = value
     }
 }
 

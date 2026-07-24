@@ -9,7 +9,11 @@ import { WorkerPool }             from "../lib/workerpool.ts"
 import { is_deno }                from "../lib/util.ts"
 
 import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
-import { SettingsContainer, SettingsEntry } from "../ui/component-settings.tsx"
+import { 
+    SettingsContainer, 
+    SettingsEntry, 
+    SignalWithDraftValue 
+} from "../ui/component-settings.tsx"
 import { type Station }           from "../lib/station-xml.ts";
 import {
     type HoverCallbackPosition, 
@@ -394,8 +398,11 @@ export class MSEED_Heatmap extends preact.Component<{
         const file_indices: Set<number> = 
             new Set(this.$transformed_files.value.map(item => item.mseedindex))
         
-        const f_min: number = this.settings.$envelope_bandpass_fmin.value
-        const f_max: number = this.settings.$envelope_bandpass_fmax.value
+        
+        const f0_min: number = this.settings.$band_power_ratio_band0_fmin.value
+        const f0_max: number = this.settings.$band_power_ratio_band0_fmax.value
+        const f1_min: number = this.settings.$band_power_ratio_band1_fmin.value
+        const f1_max: number = this.settings.$band_power_ratio_band1_fmax.value
 
 
         const promises: {promise:Promise<HeatmapDataItemWithFile[]>, index:number}[] = []
@@ -420,8 +427,14 @@ export class MSEED_Heatmap extends preact.Component<{
             const fs: number = mseed.meta.samplerate
             const window: number = Math.floor( HARDCODED_BIN_LENGTH_SECONDS * fs )
             
-            const ratios_promise: Promise<Float32Array|Error> = 
-                (await this.#pool!.compute_band_power_ratio(signal, fs, f_min, f_max, window)).promise
+            const ratios_promise: Promise<Float32Array|Error> = (
+                await this.#pool!.compute_band_power_ratio(
+                    signal, 
+                    fs, 
+                    window, 
+                    {min: f0_min, max: f0_max}, 
+                    {min:f1_min, max:f1_max})
+            ).promise
             const heatmapitems_promise: Promise<HeatmapDataItemWithFile[]> = 
                 convert_band_power_ratios_to_heatmap_items(
                     ratios_promise, 
@@ -824,14 +837,26 @@ export type HeatmapColorMode =
 
 export class MSEED_HeatmapSettings {
     /** Select which value drives the heatmap color. */
-    $heatmap_color_mode: Signal<HeatmapColorMode> =
-        new Signal<HeatmapColorMode>('station_colors');
+    $heatmap_color_mode: SignalWithDraftValue<HeatmapColorMode> =
+        new SignalWithDraftValue<HeatmapColorMode>('station_colors')
 
     /** Lower end of the bandpass filter to apply before envelope computation */
     $envelope_bandpass_fmin: Signal<number> = new Signal<number>(0.0);
 
     /** Upper end of the bandpass filter to apply before envelope computation */
     $envelope_bandpass_fmax: Signal<number> = new Signal<number>(99999);
+
+    /** Lower end of band power ratio band 1 */
+    $band_power_ratio_band0_fmin: Signal<number> = new Signal<number>(0.0);
+
+    /** Upper end of band power ratio band 1 */
+    $band_power_ratio_band0_fmax: Signal<number> = new Signal<number>(99999);
+
+    /** Lower end of band power ratio band 2 */
+    $band_power_ratio_band1_fmin: Signal<number> = new Signal<number>(0.0);
+
+    /** Upper end of band power ratio band 2 */
+    $band_power_ratio_band1_fmax: Signal<number> = new Signal<number>(99999);
 
 
     to_component_settings_entries(): SettingsEntry[] {
@@ -850,13 +875,55 @@ export class MSEED_HeatmapSettings {
                 type:    'number',  
                 label:   'Envelope bandpass lower bound (Hz)', 
                 step:    1, 
-                $signal: this.$envelope_bandpass_fmin
+                $signal: this.$envelope_bandpass_fmin,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'envelope' 
+                )
             },
             {
                 type:    'number',  
                 label:   'Envelope bandpass upper bound (Hz)', 
                 step:    1, 
-                $signal: this.$envelope_bandpass_fmax
+                $signal: this.$envelope_bandpass_fmax,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'envelope' 
+                )
+            },
+            {
+                type:    'number',  
+                label:   'Numerator band lower bound (Hz)', 
+                step:    1, 
+                $signal: this.$band_power_ratio_band0_fmin,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'band_power_ratio' 
+                )
+            },
+            {
+                type:    'number',  
+                label:   'Numerator band upper bound (Hz)', 
+                step:    1, 
+                $signal: this.$band_power_ratio_band0_fmax,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'band_power_ratio' 
+                )
+            },
+            {
+                type:    'number',  
+                label:   'Denominator lower bound (Hz)', 
+                step:    1, 
+                $signal: this.$band_power_ratio_band1_fmin,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'band_power_ratio' 
+                )
+            },
+            {
+                type:    'number',  
+                label:   'Denominator upper bound (Hz)', 
+                step:    1, 
+                $signal: this.$band_power_ratio_band1_fmax,
+                $show_if: signals.computed( 
+                    () => this.$heatmap_color_mode.$draft.value == 'band_power_ratio' 
+                )
             },
         ]
     }
