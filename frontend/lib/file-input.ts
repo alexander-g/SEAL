@@ -251,7 +251,7 @@ async function read_csv_inference_file(file:File): Promise<InferenceEvent[]|Erro
 
         const inference:InferenceEvent[] = []
         for(const line of lines) {
-            const d = new Date(line)
+            const d: Date = parse_date_UTC_if_no_TZ(line)
             if(isNaN(d.getTime())) 
                 return new Error();
             
@@ -263,6 +263,12 @@ async function read_csv_inference_file(file:File): Promise<InferenceEvent[]|Erro
         return new Error('Could not read inference csv file')
     }
 }
+
+/** Parse a date string, assuming UTC if not time zone is specified */
+function parse_date_UTC_if_no_TZ(s:string): Date {
+    const hasTZ:boolean = /([zZ]|[+-]\d{2}:?\d{2})$/.test(s);
+    return new Date(hasTZ ? s : s + "Z");
+  }
 
 
 /** Check network, station, channel match. */
