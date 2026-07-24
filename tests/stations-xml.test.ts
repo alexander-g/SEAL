@@ -6,6 +6,10 @@ import { assert } from "asserts";
 const STATIONSXMLFILE:string = path.fromFileUrl(
     import.meta.resolve('./assets/stations.xml')
 )
+
+const STATIONSXMLFILE2:string = path.fromFileUrl(
+    import.meta.resolve('./assets/stations.sensitivity-none.xml')
+)
 const QUAKEMLFILE:string = path.fromFileUrl(
     import.meta.resolve('./assets/events.xml')
 )
@@ -29,6 +33,15 @@ Deno.test('parse_stationxml', async () => {
     const networks = new Set(output0.map( station => station.network ))
     assert(networks.size == 1)
     assert(networks.has('XXX'))
+})
+
+// actual bug, instrument response value is None (as saved by obspy)
+Deno.test('parse_stationxml2', async () => {
+    const f:File = new File([Deno.readFileSync(STATIONSXMLFILE2)], "stations.xml")
+    const output0:Station[]|Error = await parse_stationxml_file(f)
+    
+    // just dont fail
+    assert(!(output0 instanceof Error))
 })
 
 

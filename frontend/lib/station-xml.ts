@@ -168,14 +168,21 @@ function parse_channel_element(element:XmlElement): Channel|Error {
         return new Error('<Channel> element has no "locationCode" attribute')
 
     let response:Response|undefined = undefined
+    let response_seen:boolean = false
     for(const child of element.children) {
         if(child.type == 'element' && child.name.local == 'Response') {
-            if(response != undefined)
+            if(response_seen)
                 return new Error('Multiple <Response> in a <Channel> element')
 
-            const parsed_response:Response|Error = parse_response_element(child)
+            response_seen = true
+
+            const parsed_response:Response|Error|null = 
+                parse_response_element(child)
             if(parsed_response instanceof Error)
-                return parsed_response
+                return parsed_response as Error
+
+            if(parsed_response == null)
+                continue
 
             response = parsed_response
         }
@@ -188,7 +195,7 @@ function parse_channel_element(element:XmlElement): Channel|Error {
 }
 
 
-function parse_response_element(element:XmlElement): Response|Error {
+function parse_response_element(element:XmlElement): Response|Error|null {
     if(element.name.local != 'Response')
         return new Error('Not a <Response> element')
 
@@ -205,17 +212,21 @@ function parse_response_element(element:XmlElement): Response|Error {
     if(instrument_sensitivity == null)
         return new Error('<Response> does not contain <InstrumentSensitivity>')
 
-    const sensitivity:number|Error = parse_instrument_sensitivity_value(instrument_sensitivity)
+    const sensitivity:number|Error|null = 
+        parse_instrument_sensitivity_value(instrument_sensitivity)
     if(sensitivity instanceof Error)
-        return sensitivity
+        return sensitivity as Error
+
+    if(sensitivity == null)
+        return null
 
     const input_unit:string|Error = parse_unit_name(instrument_sensitivity, 'InputUnits')
     if(input_unit instanceof Error)
-        return input_unit
+        return input_unit as Error
 
     const output_unit:string|Error = parse_unit_name(instrument_sensitivity, 'OutputUnits')
     if(output_unit instanceof Error)
-        return output_unit
+        return output_unit as Error
 
     return {input_unit, output_unit, sensitivity}
 }
@@ -223,7 +234,7 @@ function parse_response_element(element:XmlElement): Response|Error {
 
 function parse_instrument_sensitivity_value(
     element:XmlElement,
-): number|Error {
+): number|Error|null {
     let value_text:string|null = null
     for(const child of element.children) {
         if(child.type == 'element' && child.name.local == 'Value') {
@@ -241,9 +252,12 @@ function parse_instrument_sensitivity_value(
     if(value_text == null)
         return new Error('<InstrumentSensitivity> does not contain <Value>')
 
+    if(value_text.toLowerCase() == 'none')
+        return null
+
     const sensitivity:number = Number(value_text)
     if(isNaN(sensitivity))
-        return new Error('<Value> in <InstrumentSensitivity> is invalid')
+        return new Error(`<Value> in <InstrumentSensitivity> is invalid (${value_text})`)
 
     return sensitivity
 }
