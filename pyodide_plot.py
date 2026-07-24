@@ -515,7 +515,6 @@ def create_modulation_power_spectrum_for_visualization(
 def prepare_obs_signal_for_audio(
     signal: npt.NDArray[np.float32], 
     fs:     float,
-    output_path: tp.Optional[str] = None
 ) -> npt.NDArray[np.float32]:
     signal = signal - np.median(signal) # type: ignore
 
@@ -537,7 +536,5 @@ def prepare_obs_signal_for_audio(
     interp_signal = np.clip(interp_signal, -5, 5)
 
     interp_signal = interp_signal.astype('float32')
-    if output_path is not None:
-        open(output_path, 'wb').write(interp_signal.tobytes())
     return interp_signal
 
