@@ -451,7 +451,8 @@ export function compute_band_power_ratio(
             if(denominator_band.min <= f && f <= denominator_band.max)
                 sum_denominator += value;
         }
-        const ratio:number = sum_numerator / sum_denominator;
+        const ratio: number = 
+            (sum_denominator > 0) ? sum_numerator / sum_denominator : 0
         ratios.push(ratio)
     }
 
