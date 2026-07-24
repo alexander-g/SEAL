@@ -173,7 +173,7 @@ export async function read_mseed_slice_across_files(
             if(!matching_station_codes(meta, base_meta))
                 continue
             if(meta.samplerate != samplerate)
-                return new Error('MSEED samplerate mismatch')
+                continue
 
             const meta_start_ms: number = meta.starttime.getTime()
             const meta_end_ms: number = meta.endtime.getTime()
