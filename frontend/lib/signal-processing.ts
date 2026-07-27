@@ -123,6 +123,26 @@ export function stft(
     }
 }
 
+/** Compute 2D FFT for real-valued inputs. */
+export function fft2d(
+    input: Float32Array[],
+): Float32Array[] | Error {
+    if(input.length == 0)
+        return new Error('fft2d: input is empty')
+
+    const row_count: number = input.length
+    const col_count: number = input[0]?.length ?? 0
+    if(col_count == 0)
+        return new Error('fft2d: input has empty rows')
+
+    for(const row of input)
+        if(row.length != col_count)
+            return new Error('fft2d: rows must have equal length')
+
+    const row_fft: Float32Array[] = _fft_2d_rows(input)
+    return _fft_2d_columns(row_fft)
+}
+
 /** Inverse short-time Fourier transform */
 export function istft(stft_output: STFTOutput): Float32Array | Error {
     if(stft_output.frames.length == 0)
@@ -290,6 +310,92 @@ function pad_to_next_power_of_two(x:Float32Array): Float32Array {
     y.set(x, 0)
     y.fill(0, x.length)
     return y;
+}
+
+/** FFT on rows of a 2D array (real input). */
+function _fft_2d_rows(
+    input: Float32Array[],
+): Float32Array[] {
+    const col_count: number = input[0]?.length ?? 0
+    const row_fft: Float32Array[] = []
+    for(const row of input) {
+        const complex_row: Float32Array = new Float32Array(col_count * 2)
+        for(let i:number = 0; i < col_count; i++)
+            complex_row[i * 2] = row[i]!
+
+        row_fft.push(fft_1d_complex(complex_row))
+    }
+
+    return row_fft
+}
+
+/** FFT on columns of a 2D array (complex input). */
+function _fft_2d_columns(
+    row_fft: Float32Array[],
+): Float32Array[] {
+    const row_count: number = row_fft.length
+    const col_count: number = (row_fft[0]?.length ?? 0) / 2
+    const output: Float32Array[] = []
+    for(let row_index:number = 0; row_index < row_count; row_index++)
+        output.push(new Float32Array(col_count * 2))
+
+    for(let col_index:number = 0; col_index < col_count; col_index++) {
+        const column_input: Float32Array = new Float32Array(row_count * 2)
+        for(let row_index:number = 0; row_index < row_count; row_index++) {
+            const row: Float32Array = row_fft[row_index]!
+            column_input[row_index * 2] = row[col_index * 2]!
+            column_input[row_index * 2 + 1] = row[col_index * 2 + 1]!
+        }
+
+        const column_output: Float32Array = fft_1d_complex(column_input)
+
+        for(let row_index:number = 0; row_index < row_count; row_index++) {
+            const output_row: Float32Array = output[row_index]!
+            output_row[col_index * 2] = column_output[row_index * 2]!
+            output_row[col_index * 2 + 1] =
+                column_output[row_index * 2 + 1]!
+        }
+    }
+
+    return output
+}
+
+/** Compute 1D FFT for complex input. */
+function fft_1d_complex(input: Float32Array): Float32Array {
+    const length: number = input.length / 2
+    if(is_power_of_two(length)) {
+        const fft_engine = new fftjs(length)
+        const output: Float32Array = new Float32Array(length * 2)
+        fft_engine.transform(output, input)
+        return output
+    }
+
+    return compute_dft_complex(input)
+}
+
+/** Compute DFT for complex input. */
+function compute_dft_complex(input: Float32Array): Float32Array {
+    const length: number = input.length / 2
+    const output: Float32Array = new Float32Array(input.length)
+    const coefficient: number = -2 * Math.PI / length
+
+    for(let k:number = 0; k < length; k++) {
+        let sum_real: number = 0
+        let sum_imag: number = 0
+        for(let n:number = 0; n < length; n++) {
+            const real: number = input[n * 2]!
+            const imag: number = input[n * 2 + 1]!
+            const angle: number = coefficient * k * n
+            const cos_value: number = Math.cos(angle)
+            const sin_value: number = Math.sin(angle)
+            sum_real += real * cos_value - imag * sin_value
+            sum_imag += real * sin_value + imag * cos_value
+        }
+        output[k * 2] = sum_real
+        output[k * 2 + 1] = sum_imag
+    }
+
+    return output
 }
 
 function taper_and_pad_signal_both_sides(

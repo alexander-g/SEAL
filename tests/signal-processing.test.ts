@@ -125,5 +125,58 @@ Deno.test('bandpass_filter_fir', () => {
     
 })
 
+Deno.test('fft2d impulse', () => {
+    const input: Float32Array[] = [
+        new Float32Array([1, 0, 0, 0]),
+        new Float32Array([0, 0, 0, 0]),
+        new Float32Array([0, 0, 0, 0]),
+    ]
+
+    const output: Float32Array[] | Error = sig.fft2d(input)
+    assert(!(output instanceof Error))
+    assert(output.length == input.length)
+    assert(output[0]!.length == input[0]!.length * 2)
+
+    for(const row of output) {
+        for(let i:number = 0; i < row.length; i += 2) {
+            const real: number = row[i]!
+            const imag: number = row[i + 1]!
+            assert(Math.abs(real - 1) < 1e-6)
+            assert(Math.abs(imag) < 1e-6)
+        }
+    }
+})
 
 
+Deno.test('fft2d semi-random', () => {
+    // values from numpy
+    const input: Float32Array[] = [
+        [0.55,  0.72,  0.60,  0.54,  0.42,  0.65,  0.44],
+        [0.89,  0.96,  0.38,  0.79,  0.53,  0.57,  0.93],
+        [0.07,  0.09,  0.02,  0.83,  0.78,  0.87,  0.98],
+        [0.80,  0.46,  0.78,  0.12,  0.64,  0.14,  0.94],
+        [0.52,  0.41,  0.26,  0.77,  0.46,  0.57,  0.02],
+
+    ].map( x => new Float32Array(x) )
+
+    // complex
+    const expected: Float32Array[] = [
+        [   19.50,  0.00,    0.17,  1.17,    0.81,  0.50,   -0.82, -0.52,   -0.82,  0.52,    0.81, -0.50,    0.17, -1.17],
+        [    0.33, -1.80,    1.36, -1.57,    0.36, -0.90,    0.02, -0.12,    1.26,  2.57,   -0.56,  1.03,   -0.79,  1.33],
+        [   -0.28, -1.43,   -1.38, -1.99,   -0.87,  0.13,    1.59,  0.82,   -1.69, -1.00,   -0.92, -0.31,    1.30, -2.61],
+        [   -0.28,  1.43,    1.30,  2.61,   -0.92,  0.31,   -1.69,  1.00,    1.59, -0.82,   -0.87, -0.13,   -1.38,  1.99],
+        [    0.33,  1.80,   -0.79, -1.33,   -0.56, -1.03,    1.26, -2.57,    0.02,  0.12,    0.36,  0.90,    1.36,  1.57],
+    ].map( x => new Float32Array(x) )
+
+    const output: Float32Array[] | Error = sig.fft2d(input)
+    assert(!(output instanceof Error))
+    assert(output.length == input.length)
+    assert(output[0]!.length == input[0]!.length * 2)
+
+    for(const i in output) {
+        const row_output = output[i]!
+        const row_expected = expected[i]!
+        for(const j in row_output)
+            assert(  Math.abs( row_output[j]! - row_expected[j]! ) < 0.01  )
+    }
+})
