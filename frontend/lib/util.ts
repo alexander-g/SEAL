@@ -42,3 +42,23 @@ export function strftime_ISO8601_datetime(d:Date) {
 export function strftime_ISO8601_time(d:Date) {
     return strftime_UTC('%H:%M:%S', d)
 }
+
+
+
+type NumberArray = number[] | Uint8Array | Float32Array;
+
+export function find_first_above(values:NumberArray, threshold:number): number|null {
+    for(let i: number = 0; i < values.length; i++)
+        if(values[i]! > threshold)
+            return i;
+    // none found
+    return null;
+}
+
+export function find_last_below(values:NumberArray, threshold:number): number|null {
+    for(let i: number = values.length - 1; i >= 0; i--)
+        if(values[i]! < threshold)
+            return i;
+    // none found
+    return null;
+}

@@ -81,6 +81,7 @@ export function stft(
 
     const window: Float32Array|null = 
         windowtype == 'hann' ? create_hann_window(window_size) : null;
+    const window_sum: number = compute_window_sum(window) ?? 1
     const frame_count: number = 
         compute_frame_count_for_stft(signal.length, window_size, hop_size)
     const padded_length: number =
@@ -99,7 +100,9 @@ export function stft(
 
         const fftoutput: Float32Array = new Float32Array(n_fft * 2)
         fft_engine.realTransform(fftoutput, frame_padded)
-        frames.push(fftoutput.slice(0, n_fft))
+        const frame: Float32Array = 
+            signal_scale( fftoutput.slice(0, n_fft), 1/window_sum )
+        frames.push(frame)
     }
 
     const f_axis: Float32Array = new Float32Array(n_fft / 2)
@@ -253,6 +256,13 @@ export function bandpass_filter_fir(
             Fs:    fs,
             Fc:    f_max,
         });
+    
+    else if(f_max > fs/2)
+        fir_coeffs = fir_calculator.highpass({
+            order: order,
+            Fs:    fs,
+            Fc:    f_min,
+        });
     else
         fir_coeffs = fir_calculator.bandpass({
             order: order,
@@ -293,7 +303,7 @@ export function lowpass_filter_fir(
 
 
 
-function next_power_of_two(i:number): number {
+export function next_power_of_two(i:number): number {
     return 2 ** Math.ceil( Math.log2(i) )
 }
 
@@ -566,7 +576,7 @@ export function compute_band_power_ratio(
 }
 
 
-function complex2real(complex:Float32Array): Float32Array {
+export function complex2real(complex:Float32Array): Float32Array {
     const real = new Float32Array(complex.length / 2)
     for(let i:number = 0; i < real.length; i++)
         real[i] = Math.hypot(complex[i*2]!, complex[i*2+1]!)
@@ -599,3 +609,22 @@ function compute_frame_count_for_stft(
     return Math.floor(remaining / hop_size) + 1 +
         (remaining % hop_size == 0 ? 0 : 1)
 }
+
+function compute_window_sum(window: Float32Array|null): number {
+    if(window == null)
+        return 1
+
+    let sum: number = 0
+    for(const value of window)
+        sum += value
+    return sum
+}
+
+
+function signal_scale(x: Float32Array, scale: number): Float32Array {
+    const output = new Float32Array(x.length)
+    for(const i in x)
+        output[i] = x[i]! * scale
+    return output
+}
+

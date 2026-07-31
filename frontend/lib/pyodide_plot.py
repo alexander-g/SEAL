@@ -437,9 +437,14 @@ def mps_as_in_biosound(
 
 
 
-def normalize_signal(x: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-    x = x - np.mean(x)
-    scale = np.std(x)
+def normalize_signal(x: npt.NDArray[np.floating], fs:float) -> npt.NDArray[np.floating]:
+    b, a = butter(3, 1.0, 'highpass', fs=fs)
+    x_highpass = lfilter(b, a, x)
+
+    offset = np.mean(x_highpass)
+    scale  = np.std(x_highpass)
+
+    x = x - offset
     x = x / (scale + 1e-12)
     return x
 

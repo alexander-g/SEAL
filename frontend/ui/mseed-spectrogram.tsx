@@ -1,9 +1,14 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import type { IPyodide, SpectrogramData } from '../lib/pyodide.ts'
+import { 
+    create_spectrogram_for_visualization, 
+    type SpectrogramOutput,
+} from '../lib/signal-processing-visualization.ts'
 import { SettingsContainer, type SettingsEntry } from "../ui/component-settings.tsx"
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
+import { find_first_above, find_last_below } from "../lib/util.ts";
 
 
 
@@ -95,16 +100,11 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         const i0:number = data.slice_start_index
         const i1:number = i0 + signal_length * data.fs
 
-        const spectrogram_data: SpectrogramData|Error =
-            await this.props.$pyodide.value.create_spectrogram_for_visualization(
-                data.signal,
-                i0,
-                i1,
-                data.fs,
-            )
-        if(spectrogram_data instanceof Error) {
+        const spectrogram_output: SpectrogramOutput|Error = 
+            create_spectrogram_for_visualization(data.signal, data.fs, i0, i1,)
+        if(spectrogram_output instanceof Error) {
             console.error(
-                `Error computing spectrogram: ${spectrogram_data.message}`
+                `Error computing spectrogram: ${spectrogram_output.message}`
             )
             return;
         }
@@ -113,18 +113,20 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             + (i0 / data.fs)
 
         const t_axis: number[] = Array.from(
-            spectrogram_data.t_axis,
+            spectrogram_output.t_axis,
             t => spectrogram_start_s + t
         )
-        const f_axis: string[] = Array.from(spectrogram_data.f_axis)
+        const f_axis: string[] = Array.from(spectrogram_output.f_axis)
             .filter(
                 f => (f_min == null || f >= f_min) && (f_max == null || f <= f_max)
             ).map(f => format_frequency_label(f))
         const title: string = `${data.code} - Spectrogram`
 
         const spectrogram_heatmap_data: HeatmapDataItem[] = 
-            spectrogram_to_heatmap(spectrogram_data, f_min, f_max, scale)
-
+            spectrogram_to_heatmap_items(spectrogram_output, f_min, f_max, scale)
+        if(spectrogram_heatmap_data.length == 0)
+            // TODO: make this an actual user-visible error
+            console.error('Zero spectrogram pixels.')
         
         this.$heatmap_data.value = spectrogram_heatmap_data
         this.$t_axis.value = t_axis
@@ -199,72 +201,66 @@ export class MSEED_SpectrogramHeatmapSettings {
 
 
 
-function spectrogram_to_heatmap(
-    data:  SpectrogramData, 
-    f_min: number|null,
-    f_max: number|null,
-    scale: boolean = false,
+function spectrogram_to_heatmap_items(
+    spectrogram: SpectrogramOutput, 
+    f_min:       number|null,
+    f_max:       number|null,
+    scale:       boolean = false,
 ): HeatmapDataItem[] {
-    const rows:number = Math.max(data.rows, 0)
-    const cols:number = Math.max(data.cols, 0)
-    const f_axis: Float32Array = data.f_axis
+    const f_axis: Float32Array = spectrogram.f_axis
+    const t_axis: Float32Array = spectrogram.t_axis
+    const rows:number = f_axis.length
+    const cols:number = t_axis.length
 
     const output:HeatmapDataItem[] = []
-    if(rows == 0 || cols == 0 || rows != f_axis.length)
+    if(rows == 0 || cols == 0 || spectrogram.frames.length != cols)
         return output
 
-    let index:number = 0
+    const first_row: number|null = 
+        (f_min != null)? find_first_above(f_axis, f_min) : 0
+    const last_row: number|null = 
+        (f_max != null)? find_last_below(f_axis, f_max) : rows
+    if(first_row == null || last_row == null) {
+        console.error('outside the frequency range', f_min, f_max, f_axis)
+        return []
+    }
+
     let min_power:number = Number.POSITIVE_INFINITY
     let max_power:number = Number.NEGATIVE_INFINITY
-    for(let row:number = 0; row < rows; row++) {
-        const frequency_hz:number = f_axis[row] ?? 0
-        const is_below_min:boolean = f_min != null && frequency_hz < f_min
-        const is_above_max:boolean = f_max != null && frequency_hz > f_max
-        if(is_below_min || is_above_max) {
-            index += cols
-            continue
-        }
+    for(let col:number = 0; col < cols; col++){
+        const frame: Float32Array = spectrogram.frames[col]!
 
-        for(let col:number = 0; col < cols; col++) {
-            const power:number = data.power[index] ?? 0
-            index += 1
+        for(let row:number = first_row; row < last_row; row++) {
+
+            const power:number = frame[row] ?? 0
+            if(!isFinite(power))
+                continue;
             if(power < min_power)
                 min_power = power
             if(power > max_power)
                 max_power = power
-        }
+        }    
     }
 
     if(!Number.isFinite(min_power) || !Number.isFinite(max_power))
-        return output
+        return []
 
     const power_range:number = Math.max(max_power - min_power, 1e-12)
 
-    index = 0
-    let output_row:number = 0
-    for(let row:number = 0; row < rows; row++) {
-        const frequency_hz:number = f_axis[row] ?? 0
-        const is_below_min:boolean = f_min != null && frequency_hz < f_min
-        const is_above_max:boolean = f_max != null && frequency_hz > f_max
-        if(is_below_min || is_above_max) {
-            index += cols
-            continue
-        }
+    for(let col:number = 0; col < cols; col++){
+        const frame: Float32Array = spectrogram.frames[col]!
 
-        for(let col:number = 0; col < cols; col++) {
-            const power:number = data.power[index] ?? 0
-            index += 1
+        for(let row:number = first_row; row < last_row; row++) {
+            const power:number = frame[row] ?? 0
             const scaled_power:number = 
                 scale? (power - min_power) / power_range : power;
 
             output.push({
                 x: col,
-                y: output_row,
+                y: row - first_row,
                 color: scaled_power,
             })
         }
-
-        output_row += 1
     }
 
     return output
