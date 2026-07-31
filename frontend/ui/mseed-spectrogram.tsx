@@ -85,6 +85,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         const f_min: number = this.settings.$f_min.value
         const f_max: number = this.settings.$f_max.value
         const signal_length: number = this.settings.$slice_length.value
+        const scale: boolean = this.settings.$scale_colors.value
 
         if(data == null) {
             console.log('TODO: reset spectrogram')
@@ -122,7 +123,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         const title: string = `${data.code} - Spectrogram`
 
         const spectrogram_heatmap_data: HeatmapDataItem[] = 
-            spectrogram_to_heatmap(spectrogram_data, f_min, f_max)
+            spectrogram_to_heatmap(spectrogram_data, f_min, f_max, scale)
 
         
         this.$heatmap_data.value = spectrogram_heatmap_data
@@ -160,6 +161,9 @@ export class MSEED_SpectrogramHeatmapSettings {
     /** How much of the signal to show */
     $slice_length: Signal<number>;
 
+    /** Should the pixels be scaled from 0..1 ? */
+    $scale_colors = new Signal<boolean>(false)
+
     constructor($slice_length?:Signal<number>) {
         this.$slice_length = $slice_length ?? new Signal(300);
     }
@@ -184,6 +188,11 @@ export class MSEED_SpectrogramHeatmapSettings {
                 step:    10, 
                 $signal: this.$slice_length
             },
+            {
+                type:    'boolean',  
+                label:   'Scale colors', 
+                $signal: this.$scale_colors
+            },
         ]
     }
 }
@@ -194,6 +203,7 @@ function spectrogram_to_heatmap(
     data:  SpectrogramData, 
     f_min: number|null,
     f_max: number|null,
+    scale: boolean = false,
 ): HeatmapDataItem[] {
     const rows:number = Math.max(data.rows, 0)
     const cols:number = Math.max(data.cols, 0)
@@ -244,7 +254,8 @@ function spectrogram_to_heatmap(
         for(let col:number = 0; col < cols; col++) {
             const power:number = data.power[index] ?? 0
             index += 1
-            const scaled_power:number = (power - min_power) / power_range
+            const scaled_power:number = 
+                scale? (power - min_power) / power_range : power;
 
             output.push({
                 x: col,
