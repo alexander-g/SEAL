@@ -157,13 +157,17 @@ export function istft(stft_output: STFTOutput): Float32Array | Error {
     const output_length: number =
         (frame_count - 1) * stft_output.hop_size + stft_output.window_size
     const output: Float32Array = new Float32Array(output_length)
-    const window_sum: Float32Array = new Float32Array(output_length)
+    const window_sqsum: Float32Array = new Float32Array(output_length)
     const fft_engine = new fftjs(stft_output.n_fft)
+    
+    const window_sum: number = compute_window_sum(stft_output.window)
 
     for(let frame_index:number = 0; frame_index < frame_count; frame_index++) {
-        const spectrum = new Float32Array(stft_output.n_fft *2)
+        let spectrum: Float32Array = new Float32Array(stft_output.n_fft *2)
         spectrum.set(stft_output.frames[frame_index]!)
         fft_engine.completeSpectrum(spectrum)
+        
+        spectrum = signal_scale( spectrum, window_sum )
         
         if(spectrum.length != stft_output.n_fft * 2)
             return new Error('istft: invalid spectrum length')
@@ -181,14 +185,14 @@ export function istft(stft_output: STFTOutput): Float32Array | Error {
             const value: number = frame[i]! * window_i
             const index: number = start + i
             output[index]! += value
-            window_sum[index]! += window_i! * window_i!
+            window_sqsum[index]! += window_i! * window_i!
         }
     }
 
     if(stft_output.window != null)
         for(let i:number = 0; i < output.length; i++)
-            if(window_sum[i]! > 0)
-                output[i] = output[i]! / window_sum[i]!
+            if(window_sqsum[i]! > 0)
+                output[i] = output[i]! / window_sqsum[i]!
 
     return output.slice(0, stft_output.signal_length)
 }
