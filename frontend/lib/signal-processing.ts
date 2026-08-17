@@ -490,7 +490,7 @@ function reflect_pad_and_taper_signal_both_sides(
 }
 
 /** Slice the input left and right so that the result is of length `to_size` */
-function trim_both_sides(signal:Float32Array, to_size:number): Float32Array {
+export function trim_both_sides(signal:Float32Array, to_size:number): Float32Array {
     const n_to_trim: number = signal.length - to_size
     if(n_to_trim <= 0)
         return signal;
@@ -625,10 +625,184 @@ function compute_window_sum(window: Float32Array|null): number {
 }
 
 
-function signal_scale(x: Float32Array, scale: number): Float32Array {
+export function median(x: Float32Array): number {
+    if (x.length === 0)
+        return NaN;
+  
+    const a:number[] = Array.from(x).sort((p, q) => p - q);
+    const mid:number = a.length >> 1;
+  
+    return a.length % 2? a[mid]! : (a[mid - 1]! + a[mid]!) / 2;
+}
+
+/** Compute the value greater than k percent of all values in x */
+export function percentile(x: Float32Array, k:number): number {
+    if (x.length === 0) 
+        return NaN;
+
+    const a: number[] = Array.from(x).sort((a, b) => a - b);
+    const p: number = Math.min(100, Math.max(0, k));
+    const index: number = (p / 100) * (a.length - 1);
+  
+    const lo: number = Math.floor(index);
+    const hi: number = Math.ceil(index);
+  
+    if(lo === hi) 
+        return a[lo]!;
+  
+    const t: number = index - lo;
+    return a[lo]! * (1 - t) + a[hi]! * t;
+}
+
+  
+export function signal_add_scalar(x: Float32Array, scalar: number): Float32Array {
     const output = new Float32Array(x.length)
-    for(const i in x)
+    for(let i:number = 0; i < x.length; i++)
+        output[i] = x[i]! + scalar
+    return output
+}
+
+export function signal_scale(x: Float32Array, scale: number): Float32Array {
+    const output = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++)
         output[i] = x[i]! * scale
     return output
 }
 
+export function signal_abs(x: Float32Array): Float32Array {
+    const output = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++)
+        output[i] = Math.abs(x[i]!)
+    return output
+}
+
+export function signal_clip(x: Float32Array, min:number, max:number): Float32Array {
+    const output = new Float32Array(x.length)
+    for(let i:number = 0; i < x.length; i++)
+        output[i] = Math.max( Math.min(x[i]!, max), min )
+    return output
+}
+
+
+
+/** Resize a 1D signal to a new size via cubic interpolation */
+export function signal_cubic_interpolate_to_length(
+    x: Float32Array, 
+    n: number,
+): Float32Array {
+    if(n <= 0 || x.length == 0)
+        return new Float32Array(0)
+
+    if(n == 1)
+        return Float32Array.of(x[0] ?? 0)
+
+    if(x.length == 1)
+        return new Float32Array(n).fill(x[0] ?? 0)
+
+    if(x.length == 2)
+        return signal_linear_interpolate_to_length(x, n)
+
+    const output: Float32Array = new Float32Array(n)
+    const second_derivative: Float32Array =
+        compute_natural_cubic_second_derivative(x)
+
+    const scale: number = (x.length - 1) / (n - 1)
+    for(let i:number = 0; i < n; i++) {
+        const position: number = i * scale
+        const index_left: number = Math.floor(position)
+        if(index_left >= x.length - 1) {
+            output[i] = x[x.length - 1]!
+            continue
+        }
+
+        const index_right: number = index_left + 1
+        const delta: number = position - index_left
+        const a: number = 1 - delta
+        const b: number = delta
+
+        output[i] =
+            a * x[index_left]! +
+            b * x[index_right]! +
+            ((a * a * a - a) * second_derivative[index_left]! +
+                (b * b * b - b) * second_derivative[index_right]!) / 6
+    }
+
+    return output
+}
+
+/** Resize a 1D signal to a new size via linear interpolation */
+function signal_linear_interpolate_to_length(
+    x: Float32Array,
+    n: number,
+): Float32Array {
+    if(n <= 0 || x.length == 0)
+        return new Float32Array(0)
+
+    if(n == 1)
+        return Float32Array.of(x[0] ?? 0)
+
+    if(x.length == 1)
+        return new Float32Array(n).fill(x[0] ?? 0)
+
+    const output: Float32Array = new Float32Array(n)
+    const scale: number = (x.length - 1) / (n - 1)
+
+    for(let i:number = 0; i < n; i++) {
+        const position: number = i * scale
+        const index_left: number = Math.floor(position)
+        if(index_left >= x.length - 1) {
+            output[i] = x[x.length - 1]!
+            continue
+        }
+
+        const index_right: number = index_left + 1
+        const delta: number = position - index_left
+        output[i] =
+            x[index_left]! * (1 - delta) +
+            x[index_right]! * delta
+    }
+
+    return output
+}
+
+/** Compute second derivative for natural cubic spline on uniform grid. */
+function compute_natural_cubic_second_derivative(
+    x: Float32Array,
+): Float32Array {
+    const n: number = x.length
+    const second_derivative: Float32Array = new Float32Array(n)
+    if(n < 3)
+        return second_derivative
+
+    const n_inner: number = n - 2
+    const lower: Float32Array = new Float32Array(n_inner)
+    const diagonal: Float32Array = new Float32Array(n_inner)
+    const upper: Float32Array = new Float32Array(n_inner)
+    const rhs: Float32Array = new Float32Array(n_inner)
+
+    for(let i:number = 0; i < n_inner; i++) {
+        lower[i] = 1
+        diagonal[i] = 4
+        upper[i] = 1
+        rhs[i] =
+            6 * (x[i + 2]! - 2 * x[i + 1]! + x[i]!)
+    }
+
+    for(let i:number = 1; i < n_inner; i++) {
+        const factor: number = lower[i]! / diagonal[i - 1]!
+        diagonal[i]! -= factor * upper[i - 1]!
+        rhs[i]! -= factor * rhs[i - 1]!
+    }
+
+    const inner: Float32Array = new Float32Array(n_inner)
+    inner[n_inner - 1] = rhs[n_inner - 1]! / diagonal[n_inner - 1]!
+
+    for(let i:number = n_inner - 2; i >= 0; i--)
+        inner[i] =
+            (rhs[i]! - upper[i]! * inner[i + 1]!) / diagonal[i]!
+
+    for(let i:number = 0; i < n_inner; i++)
+        second_derivative[i + 1] = inner[i]!
+
+    return second_derivative
+}

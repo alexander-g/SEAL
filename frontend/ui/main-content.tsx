@@ -30,6 +30,15 @@ import type { MSeedMetadata }     from '../lib/mseed-parsing.ts'
 import type { Station, Channel }  from '../lib/station-xml.ts'
 import type { QuakeEvent }        from '../lib/quakeml.ts'
 import type { AudioWaveform }     from './audio-playback-controls.tsx'
+import { 
+    percentile,
+    signal_cubic_interpolate_to_length,
+    signal_add_scalar,
+    signal_scale,
+    signal_abs,
+    signal_clip,
+    median,
+} from "../lib/signal-processing.ts";
 
 
 
@@ -341,39 +350,32 @@ export class MainContent extends preact.Component<MainContentProps> {
 
     /** Re-read data when slice length exceeds current data. */
     #_1 = signals.effect( (async () => {
-        const slice_length: number = this.$signal_slice_length.value
-        const selected_file_index: number|null = this.$selected_file_index.value
-        const slice_start_index: number|null = this.$selected_slice_start_index.value
-        const plot_data: MSEED_SignalPlotData|null = this.$signal_plot_data.value
+        // signal subscriptions
+        // $signal_slice_length is required, to not remove
+        const _slice_length: number                = this.$signal_slice_length.value
+        const selected_file_index: number|null     = this.$selected_file_index.value
+        const slice_start_index: number|null       = this.$selected_slice_start_index.value
 
-        if(this.$plots_loading.value)
+        // dont subscribe, will call twice otherwise
+        if(this.$plots_loading.peek())
             return
 
         if(selected_file_index == null || slice_start_index == null)
             return
 
-        if(plot_data == null)
-            return
-
-        const fs: number = plot_data.sample_rate_hz
-        const slice_end_index: number = slice_start_index + slice_length * fs
-        if(plot_data.data.length >= slice_end_index)
-            return
-
         const result: Error|void = await this.read_signal_slice_for_plots(
             selected_file_index,
             slice_start_index,
-            slice_end_index,
         )
         if(result instanceof Error)
             console.warn(result)
     }) as () => void )
 
+
     /** Read a signal slice and refresh all plots. */
     private async read_signal_slice_for_plots(
         selected_file_index: number,
-        slice_start_index:   number,
-        slice_end_index?:    number,
+        slice_start_index:   number
     ): Promise<void|Error> {
         if(this.$plots_loading.value)
             return
@@ -393,8 +395,8 @@ export class MainContent extends preact.Component<MainContentProps> {
             }
 
             const fs: number = mseed.meta.samplerate
-            const resolved_slice_end_index: number = slice_end_index
-                ?? (slice_start_index + this.$signal_slice_length.value * fs)
+            const resolved_slice_end_index: number =
+                (slice_start_index + this.$signal_slice_length.value * fs)
 
             const data: Float32Array|Error =
                 await read_mseed_slice_across_files(
@@ -435,12 +437,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                 code:          code,
             }
             this.$audiodata.value = {
-                data: await slice_and_prepare_audio(
+                data: await slice_and_prepare_seismic_signal_for_audio(
                     data,
-                    slice_start_index,
-                    resolved_slice_end_index,
                     mseed.meta.samplerate,
-                    this.pyodide,
+                    slice_start_index,
+                    resolved_slice_end_index
                 ),
                 samplerate: 8000,
             }
@@ -454,22 +455,16 @@ export class MainContent extends preact.Component<MainContentProps> {
     /** Called when user clicks on an item in the heatmap.
      *  Reading the corresponding segment from the MSEED file and forwarding
      *  to other components for visualization. */
-    on_heatmap_item_select = async (selected_file_index:number, i0:number, i1:number) => {
+    on_heatmap_item_select = (selected_file_index:number, i0:number, _i1:number) => {
         // TODO: remove i1, use $signal_slice_length instead
         
         if(this.$plots_loading.value)
             return
 
-        this.$selected_file_index.value = selected_file_index
-        this.$selected_slice_start_index.value = i0
-
-        const result: Error|void = await this.read_signal_slice_for_plots(
-            selected_file_index,
-            i0,
-            i1,
-        )
-        if(result instanceof Error)
-            console.warn(result)
+        signals.batch(() => {
+            this.$selected_file_index.value = selected_file_index
+            this.$selected_slice_start_index.value = i0
+        });
     }
 
 
@@ -521,24 +516,35 @@ function find_channel_for_mseed_meta(
 
 
 
-async function slice_and_prepare_audio(
-    data: Float32Array, 
-    i0:   number, 
-    i1:   number,
-    sample_rate_hz: number,
-    pyo:  IPyodide,
+async function slice_and_prepare_seismic_signal_for_audio(
+    signal:   Float32Array, 
+    fs:       number,
+    i0:       number, 
+    i1:       number,
+    f_target: number = 8000,
+    speedup:  number = 8,
 ): Promise<Float32Array> {
     i0 = Math.max(i0, 0)
-    i1 = Math.min(i1, data.length)
+    i1 = Math.min(i1, signal.length)
 
-    const sliced: Float32Array = data.slice(i0, i1)
-    
-    const result:Error|Float32Array = 
-        await pyo.prepare_obs_signal_for_audio(sliced, sample_rate_hz)
-    if(result instanceof Error)
-        return new Float32Array([])
-    // else
-    return result;
+    signal = signal.slice(i0, i1)
+    // at least one second
+    if(signal.length < 2)
+        return signal
+
+    signal = signal_add_scalar(signal, -median(signal))
+    const percentile_998: number = percentile(signal_abs(signal), 99.8)
+
+    const n:number = Math.floor(signal.length / fs * f_target / speedup)
+    // a bit too hardcoded?
+    if(n < 128)
+        return new Float32Array(0)
+
+    signal = signal_cubic_interpolate_to_length(signal, n)
+    signal = signal_scale(signal, 1 / percentile_998)
+    signal = signal_clip(signal, -5, 5)
+
+    return signal;
 }
 
 

@@ -5,8 +5,6 @@ import {
     format_playback_position,
     get_position_status_text,
     parse_slider_number,
-    resample_to_samplerate_range,
-    type AudioWaveform,
 } from '../frontend/ui/audio-playback-controls.tsx'
 
 
@@ -57,16 +55,3 @@ Deno.test('compute_playback_position_seconds returns error on time', () => {
     assert(position instanceof Error)
 })
 
-
-Deno.test('resample_to_samplerate_range', () => {
-    const wave0: AudioWaveform = {
-        data: new Float32Array([ 0,1,0,1,0,1,0,1,0,1,0,1 ]),
-        samplerate: 100
-    }
-
-    const output0 = resample_to_samplerate_range(wave0, 8000, 96000)
-    assert(output0.samplerate == 8000)
-    assert(output0.data.length == 12*80)
-    assert(Math.min(...output0.data) == 0)
-    assert(Math.max(...output0.data) == 1)
-})

@@ -1,4 +1,6 @@
 import { 
+    signal_scale,
+    signal_add_scalar,
     bandpass_filter_fir,
     stft,
     next_power_of_two,
@@ -84,19 +86,6 @@ function postprocess_spectrogram(spectrogram:STFTOutput): SpectrogramOutput {
     }
 }
 
-function maximum(x: Float32Array): number {
-    let max: number = -Infinity
-    for(const i of x)
-        max = Math.max(max, i)
-    return max;
-}
-
-function minimum(x: Float32Array): number {
-    let min: number = +Infinity
-    for(const i of x)
-        min = Math.min(min, i)
-    return min;
-}
 
 
 function mean(x: Float32Array): number {
@@ -117,17 +106,4 @@ function std(x: Float32Array): number {
     return Math.sqrt(sum_sq / x.length)
 }
 
-function signal_add_scalar(x: Float32Array, scalar: number): Float32Array {
-    const output = new Float32Array(x.length)
-    for(const i in x)
-        output[i] = x[i]! + scalar
-    return output
-}
-
-function signal_scale(x: Float32Array, scale: number): Float32Array {
-    const output = new Float32Array(x.length)
-    for(const i in x)
-        output[i] = x[i]! * scale
-    return output
-}
 
