@@ -6,7 +6,6 @@ import * as path from "@std/path"
 // NOTE: adding /jsr for pretty rendering
 import * as preact_ssr from "preact-render-to-string/jsx";
 
-import { initialize, PYODIDE_SCRIPTS, type Pyodide } from "./frontend/lib/pyodide.ts"
 import type { AppConfig, Index } from "./frontend/index.tsx";
 
 
@@ -20,11 +19,6 @@ const HARDCODED_INDEX_TSX:string = './frontend/index.tsx'
 
 const HARDCODED_WORKER_JS:string = './frontend/lib/worker.ts'
 const HARDCODED_OUTPUTFILE_WORKER_JS:string = 'worker.ts.js'
-
-const HARDCODED_PYODIDE_WORKER_JS:string = './frontend/lib/pyodide-worker.ts'
-const HARDCODED_OUTPUTFILE_PYODIDE_WORKER_JS:string = 'pyodide-worker.ts.js'
-
-const HARDCODED_PYODIDE_DIR:string = './frontend/lib'
 
 
 
@@ -97,11 +91,6 @@ async function bundle_index_js(outputdir:string, minify:boolean) {
     return await bundle_js_file(HARDCODED_INDEX_TSX, outputpath, minify)
 }
 
-async function bundle_pyodide_worker(outputdir:string, minify:boolean) {
-    const outputpath:string = 
-        path.join(outputdir, HARDCODED_OUTPUTFILE_PYODIDE_WORKER_JS)
-    return await bundle_js_file(HARDCODED_PYODIDE_WORKER_JS, outputpath, minify)
-}
 
 async function bundle_worker(outputdir:string, minify:boolean) {
     const outputpath:string = 
@@ -110,20 +99,10 @@ async function bundle_worker(outputdir:string, minify:boolean) {
 }
 
 
-function copy_pyodide_scripts(outputdir:string) {
-    for(const py_script of PYODIDE_SCRIPTS) {
-        const py_path:string = path.join(HARDCODED_PYODIDE_DIR, py_script)
-        if( !fs.existsSync(py_path) )
-            throw new Error(`Pyodide script ${py_path} missing`)
-
-        const outputpath:string = path.join(outputdir, py_script)
-        Deno.copyFileSync(py_path, outputpath)
-    }
-}
 
 
 
-async function compile_index_html(outputdir:string, app_config:AppConfig) {
+async function compile_index_html(outputdir:string) {
     const module: { Index?: typeof Index } = 
         await import(HARDCODED_INDEX_TSX);
     if(!module.Index)
@@ -131,7 +110,7 @@ async function compile_index_html(outputdir:string, app_config:AppConfig) {
     
     
     // deno-lint-ignore no-explicit-any
-    const main_element:any = module.Index(app_config)
+    const main_element:any = module.Index()
     const rendered:string  = preact_ssr.render(main_element, {}, {pretty:true, jsx:false})
 
     const outputpath:string = 
@@ -141,21 +120,7 @@ async function compile_index_html(outputdir:string, app_config:AppConfig) {
 }
 
 
-async function copy_pyodide_files(outputdir:string) {
-    const pyo:Pyodide|Error = await initialize()
-    if(pyo instanceof Error)
-        throw pyo as Error;
 
-    const filepaths:string[]|Error = pyo.get_files_for_vendoring();
-    if(filepaths instanceof Error)
-        throw filepaths as Error;
-
-    for(const filepath of filepaths) {
-        const basename:string = path.basename(filepath)
-        const outputpath:string = path.join(outputdir, basename)
-        Deno.copyFileSync(filepath, outputpath)
-    }
-}
 
 function clear_outputdir(outputdir:string) {
     try {
@@ -169,26 +134,19 @@ function clear_outputdir(outputdir:string) {
 
 export async function build_all(
     outputdir:      string, 
-    vendor_pyodide: boolean, 
     minify:         boolean
 ) {
     clear_outputdir(outputdir)
-    await compile_index_html(outputdir, {pyodide_vendored: vendor_pyodide});
+    await compile_index_html(outputdir);
     await bundle_index_js(outputdir, minify);
     await bundle_worker(outputdir, minify);
-    await bundle_pyodide_worker(outputdir, minify);
-    await copy_pyodide_scripts(outputdir);
-    
-    if(vendor_pyodide)
-        await copy_pyodide_files(outputdir, );
 }
 
 
 if(import.meta.main) {
-    const pyodide_vendored:boolean = !Deno.args.includes('--no-pyodide');
     const minify:boolean = Deno.args.includes('--minify')
 
-    await build_all(HARDCODED_OUTPUTDIR, pyodide_vendored, minify)
+    await build_all(HARDCODED_OUTPUTDIR, minify)
 
     console.log('done')
 }

@@ -1,6 +1,5 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 
-import type { IPyodide, SpectrogramData } from '../lib/pyodide.ts'
 import { 
     create_spectrogram_for_visualization, 
     type SpectrogramOutput,
@@ -32,9 +31,6 @@ export type MSEED_Data = {
 
 type MSEED_SpectrogramProps = {
     $data: Readonly< Signal<MSEED_Data|null> >;
-
-    /** Pyodide WASM module */
-    $pyodide: Readonly< Signal<IPyodide> >;
 
     /** Flag indicating that new data is being loaded */
     $loading: Readonly<Signal<boolean>>;

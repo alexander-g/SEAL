@@ -2,10 +2,10 @@ import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import { D3Map }         from './d3-map.tsx'
 import { MSEED_SignalPlot, type MSEED_SignalPlotData } from './mseed-signal-plot.tsx'
-import {
-    MSEED_ModulationPowerSpectrum,
-    type MSEED_ModulationPowerSpectrumData,
-} from './mseed-modulation-power-spectrum.tsx'
+// import {
+//     MSEED_ModulationPowerSpectrum,
+//     type MSEED_ModulationPowerSpectrumData,
+// } from './mseed-modulation-power-spectrum.tsx'
 import { 
     MSEED_Spectrogram as MSEED_Spectrogram, 
     type MSEED_Data as MSEED_SpectrogramData 
@@ -18,12 +18,10 @@ import {
 } from '../lib/file-input.ts'
 import { combine_mseed_codes } from '../lib/mseed-parsing.ts'
 
-import { initialize_in_worker as initialize_pyodide } from '../lib/pyodide.ts'
 import { is_deno, strftime_ISO8601_datetime } from '../lib/util.ts'
 
 import type { AppConfig }         from '../index.tsx'
 import type { InferenceEvent }    from './mseed-heatmap.tsx'
-import type { IPyodide } from '../lib/pyodide.ts'
 import type { Marker, MarkerVisual } from './d3-map.tsx'
 import type { MSEED_FileAndMeta } from '../lib/file-input.ts'
 import type { MSeedMetadata }     from '../lib/mseed-parsing.ts'
@@ -82,20 +80,19 @@ export class MainContent extends preact.Component<MainContentProps> {
                 element:
                 <MSEED_Spectrogram
                     $data    = {this.$spectrogram_plot_data}
-                    $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
                     $loading = {this.$plots_loading}
                     $slice_length = {this.$signal_slice_length}
                 />
             },
-            {
-                key: 'mps',
-                label: 'Modulation Power Spectrum',
-                element: <MSEED_ModulationPowerSpectrum
-                    $data    = {this.$modulation_power_spectrum_data}
-                    $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
-                    $loading = {this.$plots_loading}
-                />,
-            },
+            // {
+            //     key: 'mps',
+            //     label: 'Modulation Power Spectrum',
+            //     element: <MSEED_ModulationPowerSpectrum
+            //         $data    = {this.$modulation_power_spectrum_data}
+            //         $pyodide = {this.$pyodide as Readonly< Signal<IPyodide> >}
+            //         $loading = {this.$plots_loading}
+            //     />,
+            // },
             {
                 key: 'map',
                 label: 'Map',
@@ -146,19 +143,6 @@ export class MainContent extends preact.Component<MainContentProps> {
             </div>
         </div>
         )
-    }
-
-    override async componentDidMount(): Promise<void> {
-        const pyodide_vendored:boolean = 
-            self.app_config?.pyodide_vendored ?? is_deno();
-        const pyo:IPyodide|Error = await initialize_pyodide(pyodide_vendored)
-        if(pyo instanceof Error) {
-            console.error('Could not load pyodide')
-            console.error(pyo as Error)
-            return;
-        }
-        this.pyodide = pyo;
-        this.$pyodide.value = pyo;
     }
 
 
@@ -345,9 +329,6 @@ export class MainContent extends preact.Component<MainContentProps> {
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
 
-    pyodide: IPyodide|undefined;
-    $pyodide: Signal<IPyodide|undefined> = new Signal(undefined)
-
     /** Re-read data when slice length exceeds current data. */
     #_1 = signals.effect( (async () => {
         // signal subscriptions
@@ -383,9 +364,6 @@ export class MainContent extends preact.Component<MainContentProps> {
         this.$plots_loading.value = true
 
         try {
-            if(this.pyodide == undefined)
-                return new Error('Pyodide not initialized')
-
             const mseed: MSEED_FileAndMeta|undefined =
                 this.props.$mseeds.value[selected_file_index]
             if(mseed == undefined) {
@@ -429,13 +407,13 @@ export class MainContent extends preact.Component<MainContentProps> {
                 code:              code,
                 slice_start_index: slice_start_index,
             }
-            this.$modulation_power_spectrum_data.value = {
-                signal:        data,
-                slice_indices: [slice_start_index, resolved_slice_end_index],
-                start_time:    mseed.meta.starttime,
-                fs:            mseed.meta.samplerate,
-                code:          code,
-            }
+            // this.$modulation_power_spectrum_data.value = {
+            //     signal:        data,
+            //     slice_indices: [slice_start_index, resolved_slice_end_index],
+            //     start_time:    mseed.meta.starttime,
+            //     fs:            mseed.meta.samplerate,
+            //     code:          code,
+            // }
             this.$audiodata.value = {
                 data: await slice_and_prepare_seismic_signal_for_audio(
                     data,
@@ -468,8 +446,8 @@ export class MainContent extends preact.Component<MainContentProps> {
     }
 
 
-    $modulation_power_spectrum_data:
-        Signal<MSEED_ModulationPowerSpectrumData|null> = new Signal(null)
+    // $modulation_power_spectrum_data:
+    //     Signal<MSEED_ModulationPowerSpectrumData|null> = new Signal(null)
 
 }
 

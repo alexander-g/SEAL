@@ -17,8 +17,7 @@
     "npm:fft.js@4.0.4": "4.0.4",
     "npm:fili@2.0.3": "2.0.3",
     "npm:preact-render-to-string@6.6.5": "6.6.5_preact@10.28.0",
-    "npm:preact@10.28.0": "10.28.0",
-    "npm:pyodide@0.29.3": "0.29.3"
+    "npm:preact@10.28.0": "10.28.0"
   },
   "jsr": {
     "@std/fs@1.0.19": {
@@ -466,13 +465,6 @@
     "preact@10.28.0": {
       "integrity": "sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA=="
     },
-    "pyodide@0.29.3": {
-      "integrity": "sha512-22UBuhOJawj7vKUnS7/F3xK+515LJdjiMAHoCfuS6/PbHiOrSQVnYwDe+2sbVwiOZ3sMMexdXICew6NqOMQGgA==",
-      "dependencies": [
-        "@types/emscripten",
-        "ws"
-      ]
-    },
     "robust-predicates@3.0.3": {
       "integrity": "sha512-NS3levdsRIUOmiJ8FZWCP7LG3QpJyrs/TE0Zpf1yvZu8cAJJ6QMW92H1c7kWpdIHo8RvmLxN/o2JXTKHp74lUA=="
     },
@@ -518,8 +510,7 @@
       "npm:fft.js@4.0.4",
       "npm:fili@2.0.3",
       "npm:preact-render-to-string@6.6.5",
-      "npm:preact@10.28.0",
-      "npm:pyodide@0.29.3"
+      "npm:preact@10.28.0"
     ]
   }
 }

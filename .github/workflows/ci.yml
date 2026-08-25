@@ -43,7 +43,7 @@ jobs:
       
       - name: Build-App
         run: |
-          ./build.ts --no-pyodide --minify
+          ./build.ts --minify
       
       - name: Archive Build
         uses: actions/upload-artifact@v4
