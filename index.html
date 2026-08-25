@@ -4,9 +4,7 @@
 			SEAL - Seismic Exploration &amp; Analysis Lab
 		</title>
 		<script type="module" src="index.tsx.js"></script>
-		<script>
-			window.app_config = {"pyodide_vendored":false}
-		</script>
+		<script>window.app_config = null</script>
 	</head>
 	<body>
 		<div style="display:flex;flex-direction:column;height:100%;">
@@ -104,38 +102,6 @@
 							</div>
 						</div>
 						<div style="flex:1 1 0%;min-width:0px;height:100%;display:none;">
-							<div class="container" style="position:relative;width:100%;">
-								<div style="position:relative;width:100%;height:100%;">
-									<div class="d3-container" style="width:100%;height:100%;">
-										<svg width="100%" height="100%" viewBox="0 0 0 0">
-											<defs>
-												<clipPath id="heatmap-clip-2">
-													<rect x="0" y="0" width="1" height="1"></rect>
-												</clipPath>
-											</defs>
-											<g transform="translate(60,24)">
-												<g clip-path="url(#heatmap-clip-2)">
-													<g transform="translate(0,0) scale(1,1)">
-														<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
-													</g>
-													<g transform="translate(0,0) scale(1,1)" style="pointer-events:none;"></g>
-												</g>
-												<g class="axis" transform="translate(0,1)"></g>
-												<g class="axis"></g>
-												<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
-												<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Temporal Modulation (Hz)</text>
-												<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Spectral Modulation (1/Hz)</text>
-											</g>
-										</svg>
-									</div>
-									<button type="button" style="position:absolute;top:2px;left:2px;padding:6px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.25);background:rgba(255,255,255,0.95);font-family:sans-serif;font-size:12px;color:#1f1f1f;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 120ms ease;z-index:5;">Settings</button>
-								</div>
-								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
-									Select a MSEED channel and time to plot here.
-								</div>
-							</div>
-						</div>
-						<div style="flex:1 1 0%;min-width:0px;height:100%;display:none;">
 							<div class="d3-container d3-map" style="position:relative;width:100%;height:100%;">
 								<svg width="0" height="0" style="background-color:rgb(224,230,224);">
 									<g class="tiles" pointer-events="none"></g>
@@ -173,7 +139,6 @@
 						<div style="display:flex;flex-wrap:wrap;gap:6px;">
 							<button style="padding:4px 8px;border:1px solid #bdbdbd;border-radius:4px;background-color:#2e4964;color:#ffffff;" type="button" aria-pressed="true">Signal</button>
 							<button style="padding:4px 8px;border:1px solid #bdbdbd;border-radius:4px;background-color:#2e4964;color:#ffffff;" type="button" aria-pressed="true">Spectrogram</button>
-							<button style="padding:4px 8px;border:1px solid #bdbdbd;border-radius:4px;cursor:pointer;background-color:#ffffff;color:#2e2e2e;" type="button" aria-pressed="false">Modulation Power Spectrum</button>
 							<button style="padding:4px 8px;border:1px solid #bdbdbd;border-radius:4px;cursor:pointer;background-color:#ffffff;color:#2e2e2e;" type="button" aria-pressed="false">Map</button>
 						</div>
 					</div>
