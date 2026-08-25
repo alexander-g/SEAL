@@ -16,9 +16,9 @@ import type { QuakeEvent } from "./lib/quakeml.ts"
 
 
 /** Config set during build */
+// deno-lint-ignore ban-types
 export type AppConfig = null | {
-    /** Whether to fetch pyodide files from "/" (true) or from CDN (false) */
-    pyodide_vendored: boolean,
+    // nothing anymore
 }
 
 /** Top-level currently loaded data */

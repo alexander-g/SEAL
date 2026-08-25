@@ -644,13 +644,6 @@ function maximum(x: Float32Array): number {
     return max;
 }
 
-function mean(x: Float32Array): number {
-    let sum: number = 0
-    for(const i of x)
-        sum = sum + i;
-    const mean: number = sum / x.length
-    return mean
-}
 
 function log1p(x: Float32Array): Float32Array {
     const output: Float32Array = new Float32Array(x.length)

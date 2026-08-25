@@ -169,9 +169,6 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
         if(duration_seconds <= 0)
             return
 
-        // all browsers must support 8khz - 96khz
-        // waveform = resample_to_samplerate_range(waveform, 8000, 96000)
-
         const start_position_seconds:number = clamp_audio_value(
             this.$position_seconds.value,
             0,
@@ -535,38 +532,4 @@ function build_audio_buffer(
         return new Error(String(error))
     }
 }
-
-
-/** Linear interpolation of a waveform to a given sample rate */
-export function resample(wave: AudioWaveform, target_rate: number): AudioWaveform {
-    if(target_rate === wave.samplerate)
-        return wave;
-
-    const src: Float32Array = wave.data;
-    const ratio: number = target_rate / wave.samplerate;
-    const output_len: number = Math.max(1, Math.floor(src.length * ratio));
-    const output = new Float32Array(output_len);
-
-    for(let i:  number = 0; i < output_len; i++) {
-      const t:  number = i / ratio;
-      const i0: number = Math.floor(t);
-      const i1: number = Math.min(i0 + 1, src.length - 1);
-      const fraction: number = t - i0;
-      output[i] = src[i0]! * (1 - fraction) + src[i1]! * fraction;
-    }
-    return { data: output, samplerate: target_rate };
-}
-
-/** Make sure waveform sample rate is in a valid range */
-export function resample_to_samplerate_range(
-    wave: AudioWaveform, 
-    minimum_rate: number = 8000, 
-    maximum_rate: number = 96000
-) {
-    const target_rate: number = 
-        Math.max( Math.min(wave.samplerate, maximum_rate), minimum_rate )
-    
-    return (wave.samplerate == target_rate)? wave : resample(wave, target_rate);
-}
-
 
