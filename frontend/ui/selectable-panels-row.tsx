@@ -1,4 +1,5 @@
 import { preact, Signal, signals, type JSX } from '../dep.ts'
+import { SplitPanels, type SplitPanelItem } from './split-panels.tsx'
 
 
 /** Describe a selectable panel item. */
@@ -35,25 +36,16 @@ export class SelectablePanelsRow extends preact.Component<SelectablePanelsRowPro
             }}
         >
             <div style={{
-                display: 'flex',
-                gap: '8px',
                 padding: '8px',
                 height: '100%',
                 minHeight: 0,
             }}>
-                { this.props.items.map((item:PanelItem) => (
-                    <div
-                        key   = {item.key}
-                        style = {{
-                            flex: '1 1 0%',
-                            minWidth: 0,
-                            height: '100%',
-                            display: this.is_visible(item.key)? null : 'none',
-                        }}
-                    >
-                        {item.element}
-                    </div>
-                )) }
+                <SplitPanels
+                    items             = {this.$selected_split_items.value}
+                    direction         = 'horizontal'
+                    min_panel_size_px = {220}
+                    handle_size_px    = {8}
+                />
             </div>
             <div style={{
                 display:   'flex',
@@ -113,6 +105,14 @@ export class SelectablePanelsRow extends preact.Component<SelectablePanelsRowPro
                 .map( key => itemkey_to_item_map[key]! )
                 .filter(Boolean)
     } )
+
+    /** Selected panels transformed for the generic split component. */
+    $selected_split_items: Readonly<Signal<SplitPanelItem[]>> = signals.computed(
+        () => this.$selected_items.value.map((item: PanelItem) => ({
+            key:     item.key,
+            element: item.element,
+        }))
+    )
 
     /** Size of the top `<div>`, updated via a resize observer */
     $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })

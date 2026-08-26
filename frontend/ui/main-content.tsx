@@ -13,6 +13,7 @@ import {
 import { MSEED_Heatmap } from './mseed-heatmap.tsx'
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
+import { SplitPanels } from './split-panels.tsx'
 import {
     read_mseed_slice_across_files,
 } from '../lib/file-input.ts'
@@ -111,36 +112,36 @@ export class MainContent extends preact.Component<MainContentProps> {
             flexDirection:'column',
             height: '100%',
         }}>
-            {/* Row 1 */}
-            <div style = {{
-                width: '100%',
-                height: '50%',
-            }}>
-                <MSEED_Heatmap 
-                    $mseed_meta = {this.$mseed_meta} 
-                    $mseeds     = {this.props.$mseeds}
-                    $inference  = {this.props.$inference}
-                    $events     = {this.props.$events}
-                    on_click    = {this.on_heatmap_item_select}
-                    on_mseed_hover  = {this.on_mseed_hover}
-                    on_events_hover = {this.on_events_hover}
-                    $highlighted_station = {this.$highlighted_station}
-                />
-            </div>
-
-            {/* Row 2 */}
-            <div style = {{
-                width: '100%',
-                height: '50%',
-            }}>
-                <SelectablePanelsRow
-                    items={panels}
-                    bottom_left_element = {
-                        <AudioPlaybackControls $audiodata={this.$audiodata} />
-                    }
-                    initial_preference  = {['plot', 'spectrogram', 'map']}
-                />
-            </div>
+            <SplitPanels
+                direction         = 'vertical'
+                min_panel_size_px = {180}
+                handle_size_px    = {8}
+                items = {[
+                    {
+                        key: 'heatmap',
+                        element: <MSEED_Heatmap
+                            $mseed_meta          = {this.$mseed_meta}
+                            $mseeds              = {this.props.$mseeds}
+                            $inference           = {this.props.$inference}
+                            $events              = {this.props.$events}
+                            on_click             = {this.on_heatmap_item_select}
+                            on_mseed_hover       = {this.on_mseed_hover}
+                            on_events_hover      = {this.on_events_hover}
+                            $highlighted_station = {this.$highlighted_station}
+                        />,
+                    },
+                    {
+                        key: 'panels',
+                        element: <SelectablePanelsRow
+                            items = {panels}
+                            bottom_left_element = {
+                                <AudioPlaybackControls $audiodata={this.$audiodata} />
+                            }
+                            initial_preference = {['plot', 'spectrogram', 'map']}
+                        />,
+                    },
+                ]}
+            />
         </div>
         )
     }
