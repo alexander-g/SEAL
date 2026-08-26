@@ -676,9 +676,9 @@ function get_station_code_from_mseed_code(mseed_code:string): string {
 }
 
 /** Create data and background colors from a station code. */
-function create_station_palette(station_code:string): RGB {
+export function create_station_palette(station_code:string): RGB {
     const hue:number = hash_string_to_unit_interval(station_code) * 360
-    return hsl_to_rgb(hue, 0.30, 0.20)
+    return hsl_to_rgb(hue, 0.50, 0.20)
 }
 
 /** Convert HSL (degrees, 0..1, 0..1) into RGB (0..255). */
@@ -728,12 +728,20 @@ function to_rgb_channel(channel:number): number {
 
 /** Convert a string into a stable 0..1 value. */
 function hash_string_to_unit_interval(value:string): number {
-    let hash:number = 0
-    for(let index:number = 0; index < value.length; index++)
-        hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
-    const normalized:number = Math.abs(hash % 10000) / 10000
+    let hash:number = 5381
+    for(let index:number = 0; index < value.length; index++) {
+        hash = Math.imul(hash, 33) ^ value.charCodeAt(index)
+        hash = hash | 0
+    }
+    hash ^= hash >>> 16
+    hash = Math.imul(hash, 2246822507)
+    hash ^= hash >>> 13
+    hash = Math.imul(hash, 3266489909)
+    hash ^= hash >>> 16
+    const normalized:number = (hash >>> 0) / 4294967295
     return normalized
 }
+
 
 
 /** Helper function to finalize creation of a heatmap, with the envelopes
