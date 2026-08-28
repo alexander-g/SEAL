@@ -25,6 +25,15 @@ export type DataItem = {
 /** Values returned to the external `on_hover()` callback */
 export type HoverCallbackPosition = Pick<HoverPosition, 'item_index' | 'x' | 'y'>
 
+export type OnClickItem = {
+    /** Which data item was clicked on */
+    item_index: number, 
+    /** Whether or not the SHIFT key was pressed */
+    shiftkey:   boolean,
+    /** Whether or not the CTRL key was pressed */
+    ctrlkey:    boolean,
+}
+
 
 export class D3Heatmap extends preact.Component<{
     $data:  Readonly<Signal<DataItem[]>>,
@@ -42,7 +51,7 @@ export class D3Heatmap extends preact.Component<{
     $y_axis_markers?: Readonly<Signal<number[]>>
 
     /** Called when user clicks on a valid item */
-    on_click: (selected:number) => void,
+    on_click: (selected:OnClickItem) => void,
 
     /** Called when user hovers on a valid item, null otherwise */
     on_hover?: (selected:HoverCallbackPosition|null) => void,
@@ -384,7 +393,11 @@ export class D3Heatmap extends preact.Component<{
         )
         if(item_index != null) {
             console.log(`Clicked on data item ${item_index} at ${[imx, imy]}`)
-            this.props.on_click(item_index)
+            this.props.on_click({
+                item_index, 
+                shiftkey: event.shiftKey, 
+                ctrlkey:  event.ctrlKey,
+            })
             return
         }
         console.log(`No data item at ${[imx, imy]}`)

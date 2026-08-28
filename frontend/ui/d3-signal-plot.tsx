@@ -11,12 +11,22 @@ import * as d3 from 'd3'
 
 /** Signal plot inputs derived from MSEED selection */
 export type SignalPlotData = {
+    /** The waveform to display */
     data:           Float32Array,
+    /** Time of the first sample */
     start_time:     Date,
+    /** Acquisition frequency in Hz */
     sample_rate_hz: number,
-    title:          string,
-    x_domain:       [Date, Date],
+
+    title?:         string,
+    x_axis_label?:  string,
     y_axis_label?:  string,
+    
+    /** First and last time to display. Will shift waveform accordingly. */
+    x_domain?:      [Date, Date],
+
+    /** Minimum and maximum amplitude. Will scale waveform accordingly. */
+    y_domain?:      [number, number],
 }
 
 export type D3SignalPlotProps = {
@@ -27,37 +37,6 @@ export type D3SignalPlotProps = {
 
 /** Render a static signal plot with axes and overlays */
 export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
-    private static next_clip_id: number = 0
-    private clip_path_id: string = `signal-clip-${D3SignalPlot.next_clip_id++}`
-
-    container_ref: preact.RefObject<HTMLDivElement> = preact.createRef()
-    svg_ref: preact.RefObject<SVGSVGElement> = preact.createRef()
-    root_ref: preact.RefObject<SVGGElement> = preact.createRef()
-    path_ref: preact.RefObject<SVGPathElement> = preact.createRef()
-    xaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
-    yaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
-
-    resize_observer: ResizeObserver | null = null
-
-    private margin: PlotMargin = { top: 24, right: 12, bottom: 40, left: 60 }
-    private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
-
-    private $dimensions: Readonly<Signal<SVGPlotDimensions>> = signals.computed(() =>
-        get_plot_dimensions(this.$container_size.value, this.margin)
-    )
-    private $svg_viewbox: Readonly<Signal<string>> = signals.computed(() => {
-        const dimensions: SVGPlotDimensions = this.$dimensions.value
-        return `0 0 ${dimensions.svg_width} ${dimensions.svg_height}`
-    })
-    private $plot_width: Readonly<Signal<number>> = signals.computed(() =>
-        this.$dimensions.value.plot_width
-    )
-    private $plot_height: Readonly<Signal<number>> = signals.computed(() =>
-        this.$dimensions.value.plot_height
-    )
-    private $x_axis_transform: Readonly<Signal<string>> = signals.computed(() =>
-        `translate(0,${this.$plot_height.value})`
-    )
 
     render(): JSX.Element {
         return <>
@@ -90,7 +69,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
 
                 <g
                     ref = {this.root_ref}
-                    transform = {`translate(${this.margin.left},${this.margin.top})`}
+                    transform = {this.$root_transform}
                 >
                     <g clip-path={`url(#${this.clip_path_id})`}>
                         <path
@@ -104,15 +83,21 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                     <g ref = {this.yaxis_ref} />
                     <g ref = {this.xaxis_ref} transform = {this.$x_axis_transform} />
 
-                    <PlotTitleLabel 
-                        $plot_width = {this.$plot_width}
-                        $title      = {this.$plot_title}
-                    />
-                    <PlotXAxisLabel 
-                        text         = 'Time (UTC)'
-                        $plot_height = {this.$plot_height} 
-                        $plot_width  = {this.$plot_width}
-                    />
+                    {this.$has_title.value
+                        ? <PlotTitleLabel
+                            $plot_width = {this.$plot_width}
+                            $title      = {this.$plot_title}
+                        />
+                        : null
+                    }
+                    {this.$has_x_axis.value
+                        ? <PlotXAxisLabel
+                            text         = {this.$x_axis_label.value}
+                            $plot_height = {this.$plot_height}
+                            $plot_width  = {this.$plot_width}
+                        />
+                        : null
+                    }
                     <PlotYAxisLabel
                         text         = {this.$y_axis_label}
                         $plot_height = {this.$plot_height}
@@ -123,10 +108,19 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         </>
     }
 
+
+
+    resize_observer: ResizeObserver | null = null
+
+    /** Size of the top <div>. Updated via resize observer. */
+    $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
+
+
     override componentDidMount(): void {
         const container: HTMLDivElement | null = this.container_ref.current
         if(container != null) {
-            this.#update_container_size(container.clientWidth, container.clientHeight)
+            this.$container_size.value = 
+                { width:container.clientWidth, height:container.clientHeight }
             this.resize_observer = new ResizeObserver(this.#on_container_resize)
             this.resize_observer.observe(container)
         }
@@ -142,32 +136,22 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         this.#_containersize_subscription()
     }
 
-    #_plotdata_subscription = this.props.$plot_data.subscribe(() => {
-        this.#update_plot()
-    })
-
-    #_containersize_subscription = this.$container_size.subscribe(() => {
-        this.#update_plot()
-    })
 
     #on_container_resize = (entries: ResizeObserverEntry[]): void => {
         for(const entry of entries) {
             const { width, height } = entry.contentRect
-            this.#update_container_size(width, height)
+            this.$container_size.value = { width, height }
         }
     }
 
-    #update_container_size(width: number, height: number): void {
-        this.$container_size.value = { width, height }
-    }
 
     #update_plot(): void {
         const dimensions: SVGPlotDimensions = this.$dimensions.value
         if(dimensions.plot_width <= 0 || dimensions.plot_height <= 0)
             return
-        if(this.path_ref.current == null)
-            return
-        if(this.xaxis_ref.current == null || this.yaxis_ref.current == null)
+        if(this.path_ref.current  == null 
+        || this.xaxis_ref.current == null 
+        || this.yaxis_ref.current == null)
             return
 
         const plot_data: SignalPlotData | null = this.props.$plot_data.value
@@ -177,20 +161,27 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         }
 
         const data: Float32Array = plot_data.data
-        const time_domain: [Date, Date] = plot_data.x_domain
-
+        const x_domain: [Date, Date]|Error = 
+            plot_data.x_domain 
+            ?? compute_time_domain(
+                plot_data.start_time, 
+                0, 
+                data.length, 
+                plot_data.sample_rate_hz
+            )
         const y_domain: [number, number] | Error = 
-            compute_signal_y_domain(data, data)
-        if(y_domain instanceof Error) {
+            plot_data.y_domain ?? compute_signal_y_domain(data, data)
+        if(x_domain instanceof Error || y_domain instanceof Error) {
+            console.error('update_plot: domain error', x_domain, y_domain)
             this.#clear_plot()
             return
         }
 
-        const start_ms: number = time_domain[0].getTime()
+        const start_ms: number = plot_data.start_time.getTime()
         const sample_period_ms: number = (1000 / plot_data.sample_rate_hz)
 
         const x_scale: d3.ScaleTime<number, number> = d3.scaleTime()
-            .domain(time_domain)
+            .domain(x_domain)
             .range([0, dimensions.plot_width])
 
         const y_scale: d3.ScaleLinear<number, number> = d3.scaleLinear()
@@ -217,23 +208,29 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
 
         const tick_format = (d: Date, index:number) => 
             (index == 0)? strftime_ISO8601_datetime(d) : strftime_ISO8601_time(d)
-        const x_axis: d3.Axis<Date|d3.NumberValue> = d3.axisBottom(x_scale)
-            .ticks(5)
-            // @ts-ignore yeah whatever
-            .tickFormat(tick_format)
         const y_axis: d3.Axis<d3.NumberValue> = d3.axisLeft(y_scale)
             .ticks(5, '~s')
 
         d3.select(this.path_ref.current)
             .attr('d', line_path ?? '')
 
-        d3.select(this.xaxis_ref.current)
-            .call(x_axis)
+        if(this.$has_x_axis.value) {
+            const x_axis: d3.Axis<Date|d3.NumberValue> = d3.axisBottom(x_scale)
+                .ticks(5)
+                // @ts-ignore yeah whatever
+                .tickFormat(tick_format)
+            d3.select(this.xaxis_ref.current)
+                .call(x_axis)
+        } else {
+            d3.select(this.xaxis_ref.current)
+                .selectAll('*')
+                .remove()
+        }
 
         d3.select(this.yaxis_ref.current)
             .call(y_axis)
 
-        this.$plot_title.value = plot_data.title
+        this.$plot_title.value = plot_data.title ?? ''
     }
 
     #clear_plot(): void {
@@ -247,9 +244,71 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
     }
 
     private $plot_title: Signal<string> = new Signal('')
+    private $x_axis_label: Readonly<Signal<string>> = signals.computed(() =>
+        this.props.$plot_data.value?.x_axis_label ?? ''
+    )
     private $y_axis_label: Readonly<Signal<string>> = signals.computed( 
         () => this.props.$plot_data.value?.y_axis_label ?? 'Amplitude' 
     )
+
+
+
+    container_ref: preact.RefObject<HTMLDivElement> = preact.createRef()
+    svg_ref:   preact.RefObject<SVGSVGElement> = preact.createRef()
+    root_ref:  preact.RefObject<SVGGElement> = preact.createRef()
+    path_ref:  preact.RefObject<SVGPathElement> = preact.createRef()
+    xaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
+    yaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
+
+
+    /** Static per-plot counter, used in svg to clip plot to bounds */
+    private static next_clip_id: number = 0
+    /** Unique ID, used in svg to clip plot to bounds */
+    private clip_path_id: string = `signal-clip-${D3SignalPlot.next_clip_id++}`
+
+
+
+    $has_title: Readonly<Signal<boolean>> = signals.computed(() =>
+        has_display_text(this.props.$plot_data.value?.title)
+    )
+    $has_x_axis: Readonly<Signal<boolean>> = signals.computed(() =>
+        has_display_text(this.props.$plot_data.value?.x_axis_label)
+    )
+
+    $plot_margin: Readonly<Signal<PlotMargin>> = signals.computed(() =>
+        get_plot_margin(this.$has_title.value, this.$has_x_axis.value)
+    )
+
+    $dimensions: Readonly<Signal<SVGPlotDimensions>> = signals.computed(() =>
+        get_plot_dimensions(this.$container_size.value, this.$plot_margin.value)
+    )
+    $svg_viewbox: Readonly<Signal<string>> = signals.computed(() => {
+        const dimensions: SVGPlotDimensions = this.$dimensions.value
+        return `0 0 ${dimensions.svg_width} ${dimensions.svg_height}`
+    })
+    $plot_width: Readonly<Signal<number>> = signals.computed(() =>
+        this.$dimensions.value.plot_width
+    )
+    $plot_height: Readonly<Signal<number>> = signals.computed(() =>
+        this.$dimensions.value.plot_height
+    )
+    $x_axis_transform: Readonly<Signal<string>> = signals.computed(() =>
+        `translate(0,${this.$plot_height.value})`
+    )
+    $root_transform: Readonly<Signal<string>> = signals.computed(() => {
+        const margin: PlotMargin = this.$plot_margin.value
+        return `translate(${margin.left},${margin.top})`
+    })
+
+
+    // NOTE: those subscrptions must come after the signal definitions above
+    #_plotdata_subscription = this.props.$plot_data.subscribe(() => {
+        this.#update_plot()
+    })
+
+    #_containersize_subscription = this.$container_size.subscribe(() => {
+        this.#update_plot()
+    })
 }
 
 
@@ -285,12 +344,29 @@ function get_plot_dimensions(measured: Size, margin: PlotMargin): SVGPlotDimensi
     return { svg_width, svg_height, plot_width, plot_height }
 }
 
+/** Pick margins based on optional labels and axes */
+function get_plot_margin(has_title: boolean, has_x_axis: boolean): PlotMargin {
+    return {
+        top:    has_title  ? 24 : 0,
+        bottom: has_x_axis ? 18 : 0,
+        right:  12,
+        left:   60,
+    }
+}
 
-/** Convert a slice into time bounds */
+/** Return true when text should be rendered */
+function has_display_text(value: string | undefined): boolean {
+    if(value == null)
+        return false
+    return value.trim().length > 0
+}
+
+
+/** Compute the start and stop time for the x axis */
 export function compute_time_domain(
-    start_time: Date,
-    start_index: number,
-    stop_index: number,
+    start_time:     Date,
+    start_index:    number,
+    stop_index:     number,
     sample_rate_hz: number,
 ): [Date, Date] | Error {
     if(sample_rate_hz <= 0)
@@ -308,7 +384,7 @@ export function compute_time_domain(
 
 /** Compute y domain and enforce minimum range based on std(data) */
 export function compute_signal_y_domain(
-    full_data: Float32Array,
+    full_data:   Float32Array,
     sliced_data: Float32Array,
 ): [number, number] | Error {
     if(full_data.length == 0 || sliced_data.length == 0)

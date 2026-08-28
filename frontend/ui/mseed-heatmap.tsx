@@ -7,19 +7,25 @@ import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
 import { tremorwasm }             from "../lib/file-input.ts";
 import { WorkerPool }             from "../lib/workerpool.ts"
 import { is_deno }                from "../lib/util.ts"
+import { type Station }           from "../lib/station-xml.ts";
 
-import { D3Heatmap }              from "../ui/d3-heatmap.tsx"
+import { 
+    D3Heatmap,
+    type OnClickItem as D3OnClickitem,
+} from "../ui/d3-heatmap.tsx"
+
 import { 
     SettingsContainer, 
     SettingsEntry, 
     SignalWithDraftValue 
 } from "../ui/component-settings.tsx"
-import { type Station }           from "../lib/station-xml.ts";
+
 import {
     type HoverCallbackPosition, 
     type DataItem as HeatmapDataItem,
     type RGB,
 } from "../ui/d3-heatmap.tsx"
+
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 
 import { range } from 'd3';
@@ -49,6 +55,17 @@ export type InferenceEvent = {
     time:Date
 }
 
+export type OnClickItem = {
+    /** Index of the mseed file that was clicked on */
+    mseed_index: number, 
+    /** Index within the mseed file that was clicked on */
+    start_index: number, 
+    /** Whether the SHIFT key was pressed during the click */
+    shiftkey:    boolean, 
+    /** Whether the CTRL key was pressed during the click */
+    ctrlkey:     boolean,
+}
+
 
 /** Wrapper around the MSEED-agnostic D3Heatmap */
 export class MSEED_Heatmap extends preact.Component<{
@@ -65,7 +82,7 @@ export class MSEED_Heatmap extends preact.Component<{
 
     /** Called when user clicks on a pixel in the heatmap. Receives the
      *  index of the file and the from/to data indices within the file. */
-    on_click: (selected_mseed_index:number, i0:number, i1:number) => void,
+    on_click: (selected:OnClickItem) => void,
 
     /** Called when user hovers on a pixel in the heatmap. 
      *  Receives the index of the mseed file.  */
@@ -251,25 +268,27 @@ export class MSEED_Heatmap extends preact.Component<{
     }
 
 
-    on_heatmap_select = (index:number) => {
+    on_heatmap_select = (selected:D3OnClickitem) => {
         const item:HeatmapDataItemWithFile|undefined = 
-            this.$transformed_files.value[index];
+            this.$transformed_files.value[selected.item_index];
         if(item == undefined) {
-            console.error(`No corresponding item for index ${index}`)
+            console.error(`No corresponding item for index ${selected.item_index}`)
             return;
         }
         const meta:MSeedMetadata = this.props.$mseed_meta.value[item.mseedindex]!
         
-        const meta_start_s = meta.starttime.getTime() / 1000
         const t0: number = item.timestamp;
-
-        const start_seconds_within_file = t0 - meta_start_s;
+        const start_of_file_seconds:number = meta.starttime.getTime() / 1000
+        const start_seconds_within_file:number = t0 - start_of_file_seconds;
         
         const i0: number = 
             Math.floor( Math.max(start_seconds_within_file * meta.samplerate, 0) )
-        const i1: number = 
-            Math.floor( i0 + HARDCODED_BIN_LENGTH_SECONDS * meta.samplerate )
-        this.props.on_click(item.mseedindex, i0, i1)
+        this.props.on_click({
+            mseed_index: item.mseedindex, 
+            start_index: i0, 
+            shiftkey:    selected.shiftkey, 
+            ctrlkey:     selected.ctrlkey
+        })
     }
 
     format_station_axis_label = (index:number, y_axis:string[]): string => {
