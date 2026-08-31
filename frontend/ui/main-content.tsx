@@ -340,7 +340,9 @@ export class MainContent extends preact.Component<MainContentProps> {
             return
         this.$plots_loading.value = true
 
-        const signal_plot_data_list: MSEED_SignalPlotData[] = []
+        const new_signal_plot_data_list: MSEED_SignalPlotData[] = []
+        const old_signal_plot_data_list: MSEED_SignalPlotData[] = 
+            this.$signal_plot_data.peek()
 
         try {
         for(const i in selected_slices) {
@@ -354,12 +356,28 @@ export class MainContent extends preact.Component<MainContentProps> {
                 continue
             }
 
+            const code: string = combine_mseed_codes(mseed.meta)
             const fs: number = mseed.meta.samplerate
+            const slice_length_samples: number = slice_length * fs
             const slice_end_index: number =
-                selectedslice.start_index + slice_length * fs
+                selectedslice.start_index + slice_length_samples
+
+            // check in the current $signal_plot_data if this item already exists
+            const previous: MSEED_SignalPlotData|null = 
+                _find_previous_mseed_signal_plot_data(
+                    old_signal_plot_data_list, 
+                    {
+                        start_time: mseed.meta.starttime, 
+                        slice_start_index:selectedslice.start_index, 
+                        code, 
+                        slice_length_samples
+                    }
+                )
             
+            // re-use previous item's data or read from files
             const data: Float32Array|Error =
-                await read_mseed_slice_across_files(
+                previous?.data
+                ?? await read_mseed_slice_across_files(
                     this.props.$mseeds.value,
                     selectedslice.file_index,
                     [selectedslice.start_index, slice_end_index],
@@ -369,12 +387,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                 continue
             }
 
-            const code: string = combine_mseed_codes(mseed.meta)
             const channel: Channel|null =
                 // should this be a subscription instead of .peek() ?
                 find_channel_for_mseed_meta(mseed.meta, this.props.$stations.peek())
             
-            signal_plot_data_list.push({
+            new_signal_plot_data_list.push({
                 data,
                 start_time:        mseed.meta.starttime,
                 sample_rate_hz:    mseed.meta.samplerate,
@@ -382,6 +399,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                 response:          channel?.response,
                 slice_start_index: selectedslice.start_index,
             })
+
+            // for now only signal plots with multiple signals
+            if( Number(i) > 0 )
+                continue
+
             this.$spectrogram_plot_data.value = {
                 signal:            data,
                 start_time:        mseed.meta.starttime,
@@ -409,7 +431,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         } finally {
             this.$plots_loading.value = false
         }
-        this.$signal_plot_data.value = signal_plot_data_list
+        this.$signal_plot_data.value = new_signal_plot_data_list
 
         return
     })()
@@ -496,6 +518,43 @@ function find_channel_for_mseed_meta(
 }
 
 
+
+type AssertEmpty<T extends Record<PropertyKey, never>> = T;
+
+
+type PartialMSeed_SignalPlotData = 
+    Pick<MSEED_SignalPlotData, 'code'|'start_time'|'slice_start_index'>
+    & { slice_length_samples:number }
+
+
+/** Used to determine if we need to re-read data from files or can re-use  */
+function _find_previous_mseed_signal_plot_data(
+    data_list: readonly MSEED_SignalPlotData[], 
+    target:    PartialMSeed_SignalPlotData,
+): MSEED_SignalPlotData|null {
+    for(const item of data_list) {
+        if(item.code == target.code
+        && item.start_time == target.start_time
+        && item.data.length >= target.slice_length_samples + target.slice_start_index
+        )
+            return item
+    }
+    return null
+
+    // sanity check for the future, in case I add more properties to the type
+    type SanityCheck = AssertEmpty<
+        Omit<
+            MSEED_SignalPlotData, 
+            keyof PartialMSeed_SignalPlotData
+            | 'data'
+            | 'sample_rate_hz'
+            | 'x_axis_label'
+            | 'y_axis_label'
+            | 'y_domain'
+            | 'response'
+        >
+    >;
+}
 
 
 
