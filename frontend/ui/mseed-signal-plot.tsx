@@ -79,6 +79,8 @@ export class MSEED_SignalPlot extends preact.Component<{
         const f_min: number = this.settings.$bandpass_fmin.value
         const f_max: number = this.settings.$bandpass_fmax.value
         const slice_length: number = this.settings.$slice_length.value
+        const use_common_y_domain: boolean =
+            this.settings.$use_common_y_domain.value
 
         if(plot_data.length == 0)
             return []
@@ -97,6 +99,25 @@ export class MSEED_SignalPlot extends preact.Component<{
                 )
             )
         }
+
+        if(use_common_y_domain) {
+            const valid_data: SignalPlotData[] = processed_data
+                .filter((item): item is SignalPlotData => item != null)
+
+            if(valid_data.length > 1) {
+                const y_domain: [number, number] | Error =
+                    compute_common_signal_y_domain(
+                        valid_data.map((item: SignalPlotData) => item.data)
+                    )
+                if(y_domain instanceof Error)
+                    console.warn('Could not compute common y domain', y_domain)
+                else {
+                    for(const item of valid_data)
+                        item.y_domain = y_domain
+                }
+            }
+        }
+
         return processed_data
     })
 
@@ -154,9 +175,16 @@ export class MSEED_SignalPlot extends preact.Component<{
 
 
 
+    $has_multiple_plots: Readonly<Signal<boolean>> = signals.computed(() =>
+        this.props.$plot_data.value.length > 1
+    )
+
     /** Parameters modified by the user. */
     settings: MSEED_SignalPlotSettings = 
-        new MSEED_SignalPlotSettings(this.props.$slice_length)
+        new MSEED_SignalPlotSettings(
+            this.props.$slice_length,
+            this.$has_multiple_plots,
+        )
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted above
@@ -193,10 +221,10 @@ export class MSEED_SignalPlot extends preact.Component<{
 
     /** Build the data payload to export based on current settings. */
     private build_export_payload(): ExportSignalPayload | Error {
-        const plot_data: MSEED_SignalPlotData | null =
-            this.props.$plot_data.value
-        if(plot_data == null)
+        const all_plot_data: MSEED_SignalPlotData[] = this.props.$plot_data.value
+        if(all_plot_data.length == 0)
             return new Error('No signal data to export')
+        const plot_data: MSEED_SignalPlotData = all_plot_data[0]!
 
         const fs: number = plot_data.sample_rate_hz
         const i0: number = plot_data.slice_start_index
@@ -247,14 +275,15 @@ function convert_mseed_data_to_signal_plot(
         data = data.slice(i0, i1)
         if(data.length < 2)
             return null
-
+        
+        if(item.response != undefined)
+            data = remove_sensitivity(data, item.response)
+        
         let y_axis_label:string|undefined = undefined
         if(code_on_yaxis)
             y_axis_label = `${item.code}`
-        else if(item.response != undefined) {
-            data = remove_sensitivity(data, item.response)
+        else if(item.response != undefined) 
             y_axis_label = `Amplitude (${item.response.input_unit})`
-        }
 
         
         const x_domain: [Date, Date]|Error = 
@@ -299,11 +328,20 @@ export class MSEED_SignalPlotSettings {
     /** How much of the signal to show */
     $slice_length: Signal<number>;
 
+    /** Scale all visible signals to the same y domain */
+    $use_common_y_domain: Signal<boolean> = new Signal<boolean>(false)
+
     /** Export the filtered signal instead of the original */
     $export_filtered = new Signal<boolean>(false)
 
-    constructor($slice_length?:Signal<number>) {
+    private $show_common_y_domain_setting?: Readonly<Signal<boolean>>
+
+    constructor(
+        $slice_length?: Signal<number>,
+        $show_common_y_domain_setting?: Readonly<Signal<boolean>>,
+    ) {
         this.$slice_length = $slice_length ?? new Signal(300);
+        this.$show_common_y_domain_setting = $show_common_y_domain_setting
     }
 
     to_component_settings_entries(): SettingsEntry[] {
@@ -325,6 +363,12 @@ export class MSEED_SignalPlotSettings {
                 label:   'Signal length', 
                 step:    10, 
                 $signal: this.$slice_length
+            },
+            {
+                type:     'boolean',
+                label:    'Use common y domain',
+                $signal:  this.$use_common_y_domain,
+                $show_if: this.$show_common_y_domain_setting,
             },
             {
                 type:    'boolean',
@@ -369,6 +413,48 @@ function format_filter(f_min: number, f_max: number, fs: number): string {
         return `(Lowpass ${f_max.toFixed(0)} Hz)`
     else
         return ''
+}
+
+/** Compute one shared y-domain for multiple signal arrays. */
+function compute_common_signal_y_domain(
+    signal_arrays: Float32Array[],
+): [number, number] | Error {
+    if(signal_arrays.length == 0)
+        return new Error('No data to plot.')
+
+    let sample_count: number = 0
+    let mean: number = 0
+    let mean_square_delta_sum: number = 0
+    let data_min: number = Infinity
+    let data_max: number = -Infinity
+
+    for(const signal_data of signal_arrays) {
+        for(const value of signal_data) {
+            data_min = Math.min(data_min, value)
+            data_max = Math.max(data_max, value)
+
+            sample_count += 1
+            const delta: number = value - mean
+            mean += delta / sample_count
+            const delta_after_mean_update: number = value - mean
+            mean_square_delta_sum += delta * delta_after_mean_update
+        }
+    }
+
+    if(sample_count == 0)
+        return new Error('No data to plot.')
+
+    const variance: number = mean_square_delta_sum / sample_count
+    const data_std: number = Math.sqrt(variance)
+    const data_range: number = data_max - data_min
+    const min_range: number = Math.max(data_std, 1e-9)
+
+    if(data_range < min_range) {
+        const center: number = (data_min + data_max) / 2
+        return [center - min_range / 2, center + min_range / 2]
+    }
+
+    return [data_min, data_max]
 }
 
 type ExportSignalPayload = {
