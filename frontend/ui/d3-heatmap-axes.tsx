@@ -48,6 +48,9 @@ export class Axes extends preact.Component<{
         </>
     }
 
+    xaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
+    yaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
+    
     update_axes = () => {
         // NOTE: accessing $signals up here to make sure they are subscribed to
         const t:d3.ZoomTransform = this.props.$zoom_transform.value
@@ -122,8 +125,6 @@ export class Axes extends preact.Component<{
     }
     #_1 = signals.effect( this.update_axes )
 
-    xaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
-    yaxis_ref: preact.RefObject<SVGGElement> = preact.createRef()
 
     $x_axis_transform:Readonly<Signal<string>> = signals.computed(() =>
         `translate(0,${this.props.$dimensions.value.plot_height})`

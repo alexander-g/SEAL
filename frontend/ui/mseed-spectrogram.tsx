@@ -69,6 +69,10 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         </>
     }
 
+    override componentWillUnmount(): void {
+        this.#_1()
+    }
+
     /** Parameters modified by the user. */
     settings: MSEED_SpectrogramHeatmapSettings = 
         new MSEED_SpectrogramHeatmapSettings(this.props.$slice_length)
@@ -78,7 +82,20 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     }
 
 
-    #_1 = signals.effect( (async () => {
+    /** Heatmap pixels */
+    $heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
+
+    /** X-axis values */
+    $t_axis: Signal<number[]> = new Signal([])
+
+    /** Y-axis values */
+    $f_axis: Signal<string[]> = new Signal([])
+
+    /** Plot title */
+    $title: Signal<string> = new Signal('')
+
+
+    #_1 = signals.effect( (() => {
         // TODO: reset plot, in case of errors later
 
         // signal subscriptions first
@@ -130,19 +147,6 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         this.$title.value = title
         
     }) as () => void  )
-
-    /** Heatmap pixels */
-    $heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
-
-    /** X-axis values */
-    $t_axis: Signal<number[]> = new Signal([])
-
-    /** Y-axis values */
-    $f_axis: Signal<string[]> = new Signal([])
-
-    /** Plot title */
-    $title: Signal<string> = new Signal('')
-
 
 
 }
