@@ -63,6 +63,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                     x_axis_label = 'Time (UTC)'
                     enable_hover = {false}
                     enable_zoom  = {false}
+                    downsample   = 'maxpool'
                 />
             </SettingsContainer>
         </ContainerWithOverlay>
