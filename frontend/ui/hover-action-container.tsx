@@ -4,11 +4,14 @@ import { preact, Signal, JSX } from '../dep.ts'
 type HoverActionContainerProps = {
     children:          preact.ComponentChildren
     label:             string
+    action_position?:  HoverActionPosition
     on_action?:        () => void
     $action_visible?:  Readonly<Signal<boolean>>
     $action_disabled?: Readonly<Signal<boolean>>
     $force_visible?:   Readonly<Signal<boolean>>
 }
+
+type HoverActionPosition = 'top-left' | 'top-right'
 
 /** Wrap content with a hover-revealed floating action button. */
 export class HoverActionContainer extends preact.Component<HoverActionContainerProps> {
@@ -23,11 +26,18 @@ export class HoverActionContainer extends preact.Component<HoverActionContainerP
             && (this.$hovered.value || force_visible /* || settings_open */)
         const action_disabled: boolean =
             this.props.$action_disabled?.value ?? false
+        const action_position: HoverActionPosition =
+            this.props.action_position ?? 'top-left'
+
+        const horizontal_position: preact.CSSProperties =
+            action_position == 'top-right'
+            ? { right: '2px' }
+            : { left: '2px' }
 
         const button_style: preact.CSSProperties = {
             position:      'absolute',
             top:           '2px',
-            left:          '2px',
+            ...horizontal_position,
             padding:       '6px 10px',
             borderRadius:  '6px',
             border:        '1px solid rgba(0,0,0,0.25)',

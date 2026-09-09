@@ -10,18 +10,24 @@ import {
     MSEED_Spectrogram as MSEED_Spectrogram, 
     type MSEED_Data as MSEED_SpectrogramData 
 } from './mseed-spectrogram.tsx'
-import { MSEED_Heatmap } from './mseed-heatmap.tsx'
+
+import { 
+    MSEED_Heatmap,
+    type InferenceEvent,
+    type OnClickItem,
+} from './mseed-heatmap.tsx'
+
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
+import { SplitPanels } from './split-panels.tsx'
 import {
     read_mseed_slice_across_files,
 } from '../lib/file-input.ts'
 import { combine_mseed_codes } from '../lib/mseed-parsing.ts'
 
-import { is_deno, strftime_ISO8601_datetime } from '../lib/util.ts'
+import { strftime_ISO8601_datetime } from '../lib/util.ts'
 
 import type { AppConfig }         from '../index.tsx'
-import type { InferenceEvent }    from './mseed-heatmap.tsx'
 import type { Marker, MarkerVisual } from './d3-map.tsx'
 import type { MSEED_FileAndMeta } from '../lib/file-input.ts'
 import type { MSeedMetadata }     from '../lib/mseed-parsing.ts'
@@ -72,6 +78,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                         $plot_data    = {this.$signal_plot_data}
                         $loading      = {this.$plots_loading}
                         $slice_length = {this.$signal_slice_length}
+                        on_remove     = {this.on_signal_remove}
                     />
             },
             {
@@ -106,42 +113,36 @@ export class MainContent extends preact.Component<MainContentProps> {
         ]
 
         return (
-        <div style = {{
-            display: 'flex',
-            flexDirection:'column',
-            height: '100%',
-        }}>
-            {/* Row 1 */}
-            <div style = {{
-                width: '100%',
-                height: '50%',
-            }}>
-                <MSEED_Heatmap 
-                    $mseed_meta = {this.$mseed_meta} 
-                    $mseeds     = {this.props.$mseeds}
-                    $inference  = {this.props.$inference}
-                    $events     = {this.props.$events}
-                    on_click    = {this.on_heatmap_item_select}
-                    on_mseed_hover  = {this.on_mseed_hover}
-                    on_events_hover = {this.on_events_hover}
-                    $highlighted_station = {this.$highlighted_station}
-                />
-            </div>
-
-            {/* Row 2 */}
-            <div style = {{
-                width: '100%',
-                height: '50%',
-            }}>
-                <SelectablePanelsRow
-                    items={panels}
-                    bottom_left_element = {
-                        <AudioPlaybackControls $audiodata={this.$audiodata} />
-                    }
-                    initial_preference  = {['plot', 'spectrogram', 'map']}
-                />
-            </div>
-        </div>
+            <SplitPanels
+                direction         = 'vertical'
+                min_panel_size_px = {180}
+                handle_size_px    = {8}
+                items = {[
+                    {
+                        key: 'heatmap',
+                        element: <MSEED_Heatmap
+                            $mseed_meta          = {this.$mseed_meta}
+                            $mseeds              = {this.props.$mseeds}
+                            $inference           = {this.props.$inference}
+                            $events              = {this.props.$events}
+                            on_click             = {this.on_heatmap_item_select}
+                            on_mseed_hover       = {this.on_mseed_hover}
+                            on_events_hover      = {this.on_events_hover}
+                            $highlighted_station = {this.$highlighted_station}
+                        />,
+                    },
+                    {
+                        key: 'panels',
+                        element: <SelectablePanelsRow
+                            items = {panels}
+                            bottom_left_element = {
+                                <AudioPlaybackControls $audiodata={this.$audiodata} />
+                            }
+                            initial_preference = {['plot', 'spectrogram', 'map']}
+                        />,
+                    },
+                ]}
+            />
         )
     }
 
@@ -314,14 +315,12 @@ export class MainContent extends preact.Component<MainContentProps> {
      *  spectrogram, audio components. In seconds.*/
     $signal_slice_length = new Signal<number>(300);
 
-    /** Selected file index from the heatmap. */
-    $selected_file_index: Signal<number|null> = new Signal(null)
-
-    /** Selected slice start index from the heatmap. */
-    $selected_slice_start_index: Signal<number|null> = new Signal(null)
+    /** Selected partial waveforms from the heatmap. 
+     *  Displayed in the signal plot and spectrogram. */
+    $selected_slices: Signal<SelectedSignalSlice[]> = new Signal([])
 
     /** Currently active data in the 1D signal plot */
-    $signal_plot_data: Signal<MSEED_SignalPlotData | null> = new Signal(null)
+    $signal_plot_data: Signal<MSEED_SignalPlotData[]> = new Signal([])
 
     /** Currently active data in the spectrogram plot */
     $spectrogram_plot_data: Signal<MSEED_SpectrogramData | null> = new Signal(null)
@@ -329,83 +328,88 @@ export class MainContent extends preact.Component<MainContentProps> {
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
 
-    /** Re-read data when slice length exceeds current data. */
-    #_1 = signals.effect( (async () => {
+    /** Re-read data, when user selected a new slice in the heatmap or changed
+     *  the slice length, then refresh all plots */
+    #_1 = signals.effect( () => { (async () => {
         // signal subscriptions
-        // $signal_slice_length is required, to not remove
-        const _slice_length: number                = this.$signal_slice_length.value
-        const selected_file_index: number|null     = this.$selected_file_index.value
-        const slice_start_index: number|null       = this.$selected_slice_start_index.value
+        const slice_length:number = this.$signal_slice_length.value
+        const selected_slices:SelectedSignalSlice[] = this.$selected_slices.value
 
         // dont subscribe, will call twice otherwise
         if(this.$plots_loading.peek())
             return
-
-        if(selected_file_index == null || slice_start_index == null)
-            return
-
-        const result: Error|void = await this.read_signal_slice_for_plots(
-            selected_file_index,
-            slice_start_index,
-        )
-        if(result instanceof Error)
-            console.warn(result)
-    }) as () => void )
-
-
-    /** Read a signal slice and refresh all plots. */
-    private async read_signal_slice_for_plots(
-        selected_file_index: number,
-        slice_start_index:   number
-    ): Promise<void|Error> {
-        if(this.$plots_loading.value)
-            return
-
         this.$plots_loading.value = true
 
+        const new_signal_plot_data_list: MSEED_SignalPlotData[] = []
+        const old_signal_plot_data_list: MSEED_SignalPlotData[] = 
+            this.$signal_plot_data.peek()
+
         try {
+        for(const i in selected_slices) {
+            const selectedslice: SelectedSignalSlice = selected_slices[i]!
             const mseed: MSEED_FileAndMeta|undefined =
-                this.props.$mseeds.value[selected_file_index]
+                this.props.$mseeds.value[selectedslice.file_index]
             if(mseed == undefined) {
-                return new Error(
-                    `No mseed file at index ${selected_file_index}`
+                console.error(
+                    `No mseed file at index ${selectedslice.file_index}`
                 )
+                continue
             }
 
-            const fs: number = mseed.meta.samplerate
-            const resolved_slice_end_index: number =
-                (slice_start_index + this.$signal_slice_length.value * fs)
-
-            const data: Float32Array|Error =
-                await read_mseed_slice_across_files(
-                    this.props.$mseeds.value,
-                    selected_file_index,
-                    [slice_start_index, resolved_slice_end_index],
-                )
-            if(data instanceof Error)
-                return data
-
             const code: string = combine_mseed_codes(mseed.meta)
-            const channel: Channel|null =
-                find_channel_for_mseed_meta(
-                    mseed.meta,
-                    this.props.$stations.value,
-                )
+            const fs: number = mseed.meta.samplerate
+            const slice_length_samples: number = slice_length * fs
+            const slice_end_index: number =
+                selectedslice.start_index + slice_length_samples
 
-            this.$signal_plot_data.value = {
+            // check in the current $signal_plot_data if this item already exists
+            const previous: MSEED_SignalPlotData|null = 
+                _find_previous_mseed_signal_plot_data(
+                    old_signal_plot_data_list, 
+                    {
+                        start_time: mseed.meta.starttime, 
+                        slice_start_index:selectedslice.start_index, 
+                        code, 
+                        slice_length_samples
+                    }
+                )
+            
+            // re-use previous item's data or read from files
+            const data: Float32Array|Error =
+                previous?.data
+                ?? await read_mseed_slice_across_files(
+                    this.props.$mseeds.value,
+                    selectedslice.file_index,
+                    [selectedslice.start_index, slice_end_index],
+                )
+            if(data instanceof Error){
+                console.error(data as Error)
+                continue
+            }
+
+            const channel: Channel|null =
+                // should this be a subscription instead of .peek() ?
+                find_channel_for_mseed_meta(mseed.meta, this.props.$stations.peek())
+            
+            new_signal_plot_data_list.push({
                 data,
                 start_time:        mseed.meta.starttime,
                 sample_rate_hz:    mseed.meta.samplerate,
                 code:              code,
                 response:          channel?.response,
-                slice_start_index: slice_start_index,
-            }
+                slice_start_index: selectedslice.start_index,
+            })
+
+            // for now only signal plots with multiple signals
+            if( Number(i) > 0 )
+                continue
+
             this.$spectrogram_plot_data.value = {
                 signal:            data,
                 start_time:        mseed.meta.starttime,
                 fs:                mseed.meta.samplerate,
                 code:              code,
-                slice_start_index: slice_start_index,
+                slice_start_index: selectedslice.start_index,
             }
             // this.$modulation_power_spectrum_data.value = {
             //     signal:        data,
@@ -418,31 +422,51 @@ export class MainContent extends preact.Component<MainContentProps> {
                 data: await slice_and_prepare_seismic_signal_for_audio(
                     data,
                     mseed.meta.samplerate,
-                    slice_start_index,
-                    resolved_slice_end_index
+                    selectedslice.start_index,
+                    slice_end_index
                 ),
                 samplerate: 8000,
             }
-
-            return
+        }
         } finally {
             this.$plots_loading.value = false
         }
-    }
+        this.$signal_plot_data.value = new_signal_plot_data_list
+
+        return
+    })()
+    })
 
     /** Called when user clicks on an item in the heatmap.
      *  Reading the corresponding segment from the MSEED file and forwarding
      *  to other components for visualization. */
-    on_heatmap_item_select = (selected_file_index:number, i0:number, _i1:number) => {
-        // TODO: remove i1, use $signal_slice_length instead
-        
+    on_heatmap_item_select = (selected:OnClickItem) => {
         if(this.$plots_loading.value)
             return
 
-        signals.batch(() => {
-            this.$selected_file_index.value = selected_file_index
-            this.$selected_slice_start_index.value = i0
-        });
+        const new_slice = {
+            file_index:  selected.mseed_index, 
+            start_index: selected.start_index,
+        }
+        if(selected.shiftkey)
+            this.$selected_slices.value = [
+                ...this.$selected_slices.value,
+                new_slice
+            ]
+        else
+            this.$selected_slices.value = [new_slice]
+    }
+
+    /** Called when user wants to remove a displayed signal slice. */
+    on_signal_remove = (index:number) => {
+        const current_slices: SelectedSignalSlice[] = this.$selected_slices.value
+        if(!(index in current_slices)) {
+            console.error(`on_signal_remove: invalid index ${index}`)
+            return
+        }
+
+        this.$selected_slices.value = 
+            [...current_slices.slice(0, index), ...current_slices.slice(index+1)]
     }
 
 
@@ -450,6 +474,9 @@ export class MainContent extends preact.Component<MainContentProps> {
     //     Signal<MSEED_ModulationPowerSpectrumData|null> = new Signal(null)
 
 }
+
+
+type SelectedSignalSlice = {file_index:number, start_index:number};
 
 
 /** Check if a station has matching MSEED meta. */
@@ -491,6 +518,43 @@ function find_channel_for_mseed_meta(
 }
 
 
+
+type AssertEmpty<T extends Record<PropertyKey, never>> = T;
+
+
+type PartialMSeed_SignalPlotData = 
+    Pick<MSEED_SignalPlotData, 'code'|'start_time'|'slice_start_index'>
+    & { slice_length_samples:number }
+
+
+/** Used to determine if we need to re-read data from files or can re-use  */
+function _find_previous_mseed_signal_plot_data(
+    data_list: readonly MSEED_SignalPlotData[], 
+    target:    PartialMSeed_SignalPlotData,
+): MSEED_SignalPlotData|null {
+    for(const item of data_list) {
+        if(item.code == target.code
+        && item.start_time == target.start_time
+        && item.data.length >= target.slice_length_samples + target.slice_start_index
+        )
+            return item
+    }
+    return null
+
+    // sanity check for the future, in case I add more properties to the type
+    type SanityCheck = AssertEmpty<
+        Omit<
+            MSEED_SignalPlotData, 
+            keyof PartialMSeed_SignalPlotData
+            | 'data'
+            | 'sample_rate_hz'
+            | 'x_axis_label'
+            | 'y_axis_label'
+            | 'y_domain'
+            | 'response'
+        >
+    >;
+}
 
 
 

@@ -25,6 +25,15 @@ export type DataItem = {
 /** Values returned to the external `on_hover()` callback */
 export type HoverCallbackPosition = Pick<HoverPosition, 'item_index' | 'x' | 'y'>
 
+export type OnClickItem = {
+    /** Which data item was clicked on */
+    item_index: number, 
+    /** Whether or not the SHIFT key was pressed */
+    shiftkey:   boolean,
+    /** Whether or not the CTRL key was pressed */
+    ctrlkey:    boolean,
+}
+
 
 export class D3Heatmap extends preact.Component<{
     $data:  Readonly<Signal<DataItem[]>>,
@@ -41,8 +50,11 @@ export class D3Heatmap extends preact.Component<{
     /** Optional row indices to mark with a horizontal marker */
     $y_axis_markers?: Readonly<Signal<number[]>>
 
+    /** Optional SVG elements on top of the heatmap (hidden when out of bounds) */
+    $heatmap_overlays?: Readonly<Signal<JSX.Element[]>>
+
     /** Called when user clicks on a valid item */
-    on_click: (selected:number) => void,
+    on_click: (selected:OnClickItem) => void,
 
     /** Called when user hovers on a valid item, null otherwise */
     on_hover?: (selected:HoverCallbackPosition|null) => void,
@@ -66,7 +78,6 @@ export class D3Heatmap extends preact.Component<{
     container_ref: preact.RefObject<HTMLDivElement> = preact.createRef();
     svg_ref:     preact.RefObject<SVGSVGElement> = preact.createRef();
     root_ref:    preact.RefObject<SVGGElement> = preact.createRef();
-    heatmap_ref: preact.RefObject<SVGGElement> = preact.createRef();
     xaxis_ref:   preact.RefObject<SVGGElement> = preact.createRef();
     yaxis_ref:   preact.RefObject<SVGGElement> = preact.createRef();
     svgimage_ref:  preact.RefObject<SVGImageElement> = preact.createRef();
@@ -122,10 +133,8 @@ export class D3Heatmap extends preact.Component<{
                 >
                     
                     <g clip-path={`url(#${this.clip_path_id})`}>
-                        <g 
-                            ref = {this.heatmap_ref}
-                            transform = {this.$transform_str}
-                        >
+                        {/* with pointer events */}
+                        <g transform = {this.$transform_str}>
                             <image 
                                 x      = "0" 
                                 y      = "0" 
@@ -136,9 +145,12 @@ export class D3Heatmap extends preact.Component<{
                                 onClick = {this.#svgimage_onclick}
                                 onMouseMove = {this.#svgimage_onmousemove}
                                 onMouseLeave = {this.#svgimage_onmouseleave}
-                                ref = {this.svgimage_ref} 
+                                href = {this.$svgimage_href}
+                                ref  = {this.svgimage_ref} 
                             />
                         </g>
+
+                        {/* without pointer events */}
                         <g 
                             transform = {this.$transform_str}
                             style = {{ pointerEvents: 'none' }}
@@ -167,6 +179,8 @@ export class D3Heatmap extends preact.Component<{
                                 />
                                 : null
                             }
+
+                            { this.props.$heatmap_overlays }
                         </g>
                     </g>
 
@@ -290,6 +304,9 @@ export class D3Heatmap extends preact.Component<{
         return get_rows_cols(this.props.$data.value)
     }
 
+
+    $svgimage_href: Signal<string|undefined> = new Signal(undefined)
+
     /** Render the current data input onto the <image> element. */
     update_heatmap = async () => {
         // NOTE: $data.value is up here to make sure its subscribed
@@ -330,11 +347,11 @@ export class D3Heatmap extends preact.Component<{
         const blob = await canvas.convertToBlob({ type: 'image/png' });
         const f = new File([blob], "file.png", { type: blob.type });
         
-        const svgimage:SVGImageElement = this.svgimage_ref.current!
         if(this.heatmap_image_url != null)
             URL.revokeObjectURL(this.heatmap_image_url)
         this.heatmap_image_url = URL.createObjectURL(f)
-        svgimage.href.baseVal = this.heatmap_image_url
+        // svgimage.href.baseVal = this.heatmap_image_url
+        this.$svgimage_href.value = this.heatmap_image_url
     }
     #_1 = signals.effect( () => { this.update_heatmap() } )
 
@@ -384,7 +401,11 @@ export class D3Heatmap extends preact.Component<{
         )
         if(item_index != null) {
             console.log(`Clicked on data item ${item_index} at ${[imx, imy]}`)
-            this.props.on_click(item_index)
+            this.props.on_click({
+                item_index, 
+                shiftkey: event.shiftKey, 
+                ctrlkey:  event.ctrlKey,
+            })
             return
         }
         console.log(`No data item at ${[imx, imy]}`)
