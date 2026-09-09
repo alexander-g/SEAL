@@ -22,6 +22,8 @@ export type DataItem = {
     color: number|RGB,
 }
 
+const OFFSCREEN_CANVAS_MAX_SIDE:number = 65535
+
 /** Values returned to the external `on_hover()` callback */
 export type HoverCallbackPosition = Pick<HoverPosition, 'item_index' | 'x' | 'y'>
 
@@ -68,6 +70,10 @@ export class D3Heatmap extends preact.Component<{
 
     enable_zoom?:  boolean,
     enable_hover?: boolean,
+
+    /** Downsampling method if height or width exceeds offscreencanvas limits.
+     *  Default: `nearest` */
+    downsample?: 'nearest'|'maxpool',
 
     colormap?: 'viridis'|'magma',
 }> {
@@ -310,42 +316,30 @@ export class D3Heatmap extends preact.Component<{
     /** Render the current data input onto the <image> element. */
     update_heatmap = async () => {
         // NOTE: $data.value is up here to make sure its subscribed
-        const data:DataItem[] = this.props.$data.value;
-        const colsrows:RowsCols|null = this.$rowscols.value
-        if(colsrows == null)
-            return;
-        const { cols, rows } = colsrows;
-        const [h,w] = [rows, cols];
+        const data: DataItem[] = this.props.$data.value
+        const rowscols: RowsCols|null = this.$rowscols.value
+        if(rowscols == null)
+            return
 
-        const canvas = new OffscreenCanvas(w, h);
+        const pixels:HeatmapRenderedPixels = build_heatmap_render_pixels({
+            data,
+            data_size:  {width: rowscols.cols, height: rowscols.rows},
+            colormap:   this.props.colormap ?? 'viridis',
+            downsample: this.props.downsample,
+        })
+
+        const canvas = new OffscreenCanvas(pixels.width, pixels.height)
         const ctx:OffscreenRenderingContext = canvas.getContext('2d')!;
-        ctx.clearRect(0,0,w,h)
-        ctx.fillStyle = '#b0b0b0'
-        ctx.fillRect(0, 0, w, h)
-
-        const imdata:ImageData = ctx.getImageData(0,0,w,h);
-        const buffer:Uint8ClampedArray = imdata.data; // w*h*4
-        const cmap: (t:number) => RGB = COLORMAPS[this.props.colormap ?? 'viridis']
-        for(const item of data) {
-            const row:number = rows - 1 - item.y
-            const index:number = row * w * 4 + item.x * 4;
-            if(typeof item.color == 'number') {
-                const rgb:RGB = cmap(item.color);
-                buffer[index + 0] = rgb.r; 
-                buffer[index + 1] = rgb.g;
-                buffer[index + 2] = rgb.b;
-            } else {
-                buffer[index + 0] = item.color.r; 
-                buffer[index + 1] = item.color.g;
-                buffer[index + 2] = item.color.b;
-            }
-            buffer[index + 3] = 255;
-        }
-        ctx.putImageData(imdata,0,0);
+        const imdata:ImageData = ctx.createImageData(
+            pixels.width,
+            pixels.height,
+        )
+        imdata.data.set(pixels.pixels)
+        ctx.putImageData(imdata, 0, 0)
 
 
-        const blob = await canvas.convertToBlob({ type: 'image/png' });
-        const f = new File([blob], "file.png", { type: blob.type });
+        const blob = await canvas.convertToBlob({ type: 'image/png' })
+        const f = new File([blob], 'file.png', { type: blob.type })
         
         if(this.heatmap_image_url != null)
             URL.revokeObjectURL(this.heatmap_image_url)
@@ -585,6 +579,11 @@ type Size = {
     height: number,
 }
 
+type Point = {
+    x: number,
+    y: number,
+}
+
 type PlotMargin = {
     top: number,
     right: number,
@@ -778,6 +777,77 @@ export type RGB = {
 }
 
 
+export type HeatmapRenderedPixels = {
+    width:  number,
+    height: number,
+    pixels: Uint8ClampedArray,
+}
+
+/** Clip a {@link Size} between `1` and a maximum value */
+export function constrain_size(
+    size:     Size,
+    max_side: number,
+): Size {
+    const safe_size: Size = {
+        width:  Math.max(Math.floor(size.width), 1),
+        height: Math.max(Math.floor(size.height), 1)
+    }
+    const safe_max:number = Math.max(Math.floor(max_side), 1)
+
+    const render_size: Size = {
+        width:  Math.min(safe_size.width, safe_max),
+        height: Math.min(safe_size.height, safe_max)
+    }
+    return render_size
+}
+
+function size_exceeds(size: Size, max_side: number): boolean {
+    return size.width > max_side || size.height > max_side
+}
+
+function size_exceeds_offscreen_canvas_limit(size: Size): boolean {
+    return size_exceeds(size, OFFSCREEN_CANVAS_MAX_SIDE)
+}
+
+
+/** Convert an array of {@link DataItem} to a 2D RGBA imagedata for a canvas,
+ *  downsampling if too large for the canvas. */
+export function build_heatmap_render_pixels(props: {
+    data:        DataItem[],
+    data_size:   Size,
+    colormap:    'viridis' | 'magma',
+    downsample?: 'nearest' | 'maxpool',
+    max_side?:   number,
+}): HeatmapRenderedPixels {
+    const max_side: number         = props.max_side ?? OFFSCREEN_CANVAS_MAX_SIDE
+    const render_size: Size        = constrain_size(props.data_size, max_side)
+    const pixel_count: number      = render_size.width * render_size.height
+    const pixels:Uint8ClampedArray = new Uint8ClampedArray(pixel_count * 4)
+    const cmap:(t:number) => RGB   = COLORMAPS[props.colormap]
+
+    // gray where no data
+    for(let i:number = 0; i < pixel_count; i++) {
+        const offset:number = i * 4
+        pixels[offset + 0] = 176
+        pixels[offset + 1] = 176
+        pixels[offset + 2] = 176
+        pixels[offset + 3] = 255
+    }
+
+    const method:'nearest'|'maxpool' = props.downsample ?? 'nearest'
+    if(method == 'maxpool')
+        render_pixels_with_maxpool(pixels, props.data, props.data_size, render_size, cmap)
+    else
+        render_pixels_with_nearest(pixels, props.data, props.data_size, render_size, cmap)
+
+    return {
+        width:  render_size.width,
+        height: render_size.height,
+        pixels: pixels,
+    }
+}
+
+
 /** Viridis color palette interpolation (0..1 -> RGB) */
 export function viridis(t: number): RGB {
     if (!Number.isFinite(t)) 
@@ -839,3 +909,100 @@ export function magma(t: number): RGB {
 }
 
 const COLORMAPS = {viridis, magma};
+
+function render_pixels_with_nearest(
+    output:      Uint8ClampedArray,
+    data:        DataItem[],
+    data_size:   Size,
+    render_size: Size,
+    cmap:        (t:number) => RGB,
+): void {
+    for(const item of data) {
+        const p: Point|null = 
+            map_point_between_sizes({x:item.x, y:item.y}, data_size, render_size)
+        if(p == null)
+            continue
+
+        const rgb:RGB =
+            typeof item.color == 'number' ? cmap(item.color) : item.color
+
+        const row:number = render_size.height - 1 - p.y
+        const index:number = (row * render_size.width + p.x) * 4
+        output[index + 0] = rgb.r
+        output[index + 1] = rgb.g
+        output[index + 2] = rgb.b
+        output[index + 3] = 255
+    }
+}
+
+function render_pixels_with_maxpool(
+    output:      Uint8ClampedArray,
+    data:        DataItem[],
+    data_size:   Size,
+    render_size: Size,
+    cmap:       (t:number) => RGB,
+): void {
+    const max_by_cell:Float64Array =
+        new Float64Array(render_size.width * render_size.height)
+    max_by_cell.fill(Number.NEGATIVE_INFINITY)
+
+    for(const item of data) {
+        const p: Point|null = 
+            map_point_between_sizes({x:item.x, y:item.y}, data_size, render_size)
+        if(p == null)
+            continue
+
+        const rgb:RGB =
+            typeof item.color == 'number' ? cmap(item.color) : item.color
+
+        const row:number = render_size.height - 1 - p.y
+        const cell_index:number = row * render_size.width + p.x
+        const intensity:number =
+            typeof item.color == 'number'
+                ? item.color
+                : rgb_luminance(item.color)
+        const current_max:number =
+            max_by_cell[cell_index] ?? Number.NEGATIVE_INFINITY
+        if(intensity < current_max)
+            continue
+
+        max_by_cell[cell_index] = intensity
+        const byte_index:number = cell_index * 4
+        output[byte_index + 0] = rgb.r
+        output[byte_index + 1] = rgb.g
+        output[byte_index + 2] = rgb.b
+        output[byte_index + 3] = 255
+    }
+}
+
+
+function map_point_between_sizes(
+    point:     Point,
+    from_size: Size,
+    to_size:   Size,
+): Point | null {
+    if(point.x < 0 || point.y < 0)
+        return null
+    if(point.x >= from_size.width || point.y >= from_size.height)
+        return null
+
+    const scale_x: number = to_size.width  / from_size.width
+    const scale_y: number = to_size.height / from_size.height
+    if(!isFinite(scale_x) || !isFinite(scale_y))
+        return null
+
+    const new_x: number = Math.floor(
+        Math.min(point.x * scale_x, to_size.width - 1)
+    )
+    const new_y: number = Math.floor(
+        Math.min(point.y * scale_y, to_size.height - 1)
+    )
+
+    return {x:new_x, y:new_y}
+}
+
+
+
+function rgb_luminance(color: RGB): number {
+    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
+}
