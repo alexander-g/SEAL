@@ -7,8 +7,8 @@
 		<script>window.app_config = null</script>
 	</head>
 	<body>
-		<div style="display:flex;flex-direction:column;height:100%;">
-			<div style="width:100%;height:50%;">
+		<div style="display:flex;flex-direction:column;position:relative;width:100%;height:100%;min-width:0px;min-height:0px;">
+			<div style="flex-grow:0.5;flex-shrink:1;flex-basis:0px;min-width:0px;min-height:0px;overflow:hidden;">
 				<div class="container" style="position:relative;width:100%;">
 					<div style="position:relative;width:100%;height:100%;">
 						<div class="d3-container" style="width:100%;height:100%;">
@@ -37,77 +37,58 @@
 					<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:none;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;"></div>
 				</div>
 			</div>
-			<div style="width:100%;height:50%;">
+			<div style="flex:0 0 8px;min-width:100%;min-height:8px;display:flex;align-items:center;justify-content:center;cursor:row-resize;touch-action:none;user-select:none;">
+				<div style="width:100%;height:2px;background:#c5cbd2;border-radius:1px;"></div>
+			</div>
+			<div style="flex-grow:0.5;flex-shrink:1;flex-basis:0px;min-width:0px;min-height:0px;overflow:hidden;">
 				<div style="display:flex;flex-direction:column;height:100%;width:100%;">
-					<div style="display:flex;gap:8px;padding:8px;height:100%;min-height:0px;">
-						<div style="flex:1 1 0%;min-width:0px;height:100%;">
-							<div class="container" style="position:relative;width:100%;">
-								<div style="position:relative;width:100%;height:100%;">
-									<div class="d3-container d3-signal-plot" style="position:relative;width:100%;height:100%;user-select:none;">
-										<svg width="100%" height="100%" viewBox="0 0 0 0">
-											<defs>
-												<clipPath id="signal-clip-0">
-													<rect x="0" y="0" width="1" height="1"></rect>
-												</clipPath>
-											</defs>
-											<g transform="translate(60,24)">
-												<g clip-path="url(#signal-clip-0)">
-													<path fill="none" stroke="#1f6fb2" stroke-width="1.5"></path>
-												</g>
-												<g></g>
-												<g transform="translate(0,1)"></g>
-												<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
-												<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Time (UTC)</text>
-												<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Amplitude</text>
-											</g>
-										</svg>
+					<div style="padding:8px;height:100%;min-height:0px;">
+						<div style="display:flex;flex-direction:row;position:relative;width:100%;height:100%;min-width:0px;min-height:0px;">
+							<div style="flex-grow:0.5;flex-shrink:1;flex-basis:0px;min-width:0px;min-height:0px;overflow:hidden;">
+								<div class="container" style="position:relative;width:100%;">
+									<div style="position:relative;width:100%;height:100%;">
+										<div style="display:flex;flex-direction:column;height:100%;"></div>
+										<button type="button" style="position:absolute;top:2px;left:2px;padding:6px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.25);background:rgba(255,255,255,0.95);font-family:sans-serif;font-size:12px;color:#1f1f1f;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 120ms ease;z-index:5;">Settings</button>
 									</div>
-									<button type="button" style="position:absolute;top:2px;left:2px;padding:6px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.25);background:rgba(255,255,255,0.95);font-family:sans-serif;font-size:12px;color:#1f1f1f;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 120ms ease;z-index:5;">Settings</button>
-								</div>
-								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
-									Select a MSEED channel and time to plot here.
+									<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
+										Select a MSEED channel and time to plot here.
+									</div>
 								</div>
 							</div>
-						</div>
-						<div style="flex:1 1 0%;min-width:0px;height:100%;">
-							<div class="container" style="position:relative;width:100%;">
-								<div style="position:relative;width:100%;height:100%;">
-									<div class="d3-container" style="width:100%;height:100%;">
-										<svg width="100%" height="100%" viewBox="0 0 0 0">
-											<defs>
-												<clipPath id="heatmap-clip-1">
-													<rect x="0" y="0" width="1" height="1"></rect>
-												</clipPath>
-											</defs>
-											<g transform="translate(60,24)">
-												<g clip-path="url(#heatmap-clip-1)">
-													<g transform="translate(0,0) scale(1,1)">
-														<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
+							<div style="flex:0 0 8px;min-width:8px;min-height:100%;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;user-select:none;">
+								<div style="width:2px;height:100%;background:#c5cbd2;border-radius:1px;"></div>
+							</div>
+							<div style="flex-grow:0.5;flex-shrink:1;flex-basis:0px;min-width:0px;min-height:0px;overflow:hidden;">
+								<div class="container" style="position:relative;width:100%;">
+									<div style="position:relative;width:100%;height:100%;">
+										<div class="d3-container" style="width:100%;height:100%;">
+											<svg width="100%" height="100%" viewBox="0 0 0 0">
+												<defs>
+													<clipPath id="heatmap-clip-1">
+														<rect x="0" y="0" width="1" height="1"></rect>
+													</clipPath>
+												</defs>
+												<g transform="translate(60,24)">
+													<g clip-path="url(#heatmap-clip-1)">
+														<g transform="translate(0,0) scale(1,1)">
+															<image x="0" y="0" width="1" height="1" image-rendering="pixelated" preserveAspectRatio="none"></image>
+														</g>
+														<g transform="translate(0,0) scale(1,1)" style="pointer-events:none;"></g>
 													</g>
-													<g transform="translate(0,0) scale(1,1)" style="pointer-events:none;"></g>
+													<g class="axis" transform="translate(0,1)"></g>
+													<g class="axis"></g>
+													<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
+													<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Time (UTC)</text>
+													<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Frequency (Hz)</text>
 												</g>
-												<g class="axis" transform="translate(0,1)"></g>
-												<g class="axis"></g>
-												<text x="0.5" y="-8" text-anchor="middle" font-size="12px" font-family="sans-serif"></text>
-												<text x="0.5" y="33" text-anchor="middle" font-size="11px" font-family="sans-serif">Time (UTC)</text>
-												<text x="-0.5" y="-46" transform="rotate(-90)" text-anchor="middle" font-size="11px" font-family="sans-serif">Frequency (Hz)</text>
-											</g>
-										</svg>
+											</svg>
+										</div>
+										<button type="button" style="position:absolute;top:2px;left:2px;padding:6px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.25);background:rgba(255,255,255,0.95);font-family:sans-serif;font-size:12px;color:#1f1f1f;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 120ms ease;z-index:5;">Settings</button>
 									</div>
-									<button type="button" style="position:absolute;top:2px;left:2px;padding:6px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.25);background:rgba(255,255,255,0.95);font-family:sans-serif;font-size:12px;color:#1f1f1f;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;opacity:0;pointer-events:none;transition:opacity 120ms ease;z-index:5;">Settings</button>
+									<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
+										Select a MSEED channel and time to plot here.
+									</div>
 								</div>
-								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">
-									Select a MSEED channel and time to plot here.
-								</div>
-							</div>
-						</div>
-						<div style="flex:1 1 0%;min-width:0px;height:100%;display:none;">
-							<div class="d3-container d3-map" style="position:relative;width:100%;height:100%;">
-								<svg width="0" height="0" style="background-color:rgb(224,230,224);">
-									<g class="tiles" pointer-events="none"></g>
-									<g class="annotations"></g>
-								</svg>
-								<div class="overlay" style="background:honeydew;opacity:0.6;position:absolute;top:0px;left:0px;width:100%;height:100%;display:flex;justify-content:center;align-items:center;font-family:sans-serif;pointer-events:none;">No stations loaded.</div>
 							</div>
 						</div>
 					</div>
