@@ -4,10 +4,23 @@ import {
     create_spectrogram_for_visualization, 
     type SpectrogramOutput,
 } from '../lib/signal-processing-visualization.ts'
-import { SettingsContainer, type SettingsEntry } from "../ui/component-settings.tsx"
+import {
+    SettingsContainer,
+    type SettingsEntry,
+    type SettingsAction,
+} from '../ui/component-settings.tsx'
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
-import { find_first_above, find_last_below } from "../lib/util.ts";
+import {
+    find_first_above,
+    find_last_below,
+    strftime_ISO8601_datetime,
+} from '../lib/util.ts'
+import {
+    export_visible_svgs_to_png,
+    format_png_export_filename,
+    trigger_file_download,
+} from './plot-export.ts'
 
 
 
@@ -51,27 +64,29 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         >
             <SettingsContainer
                 settings_entries = {this.settings.to_component_settings_entries()}
+                extra_actions    = {this.to_component_settings_actions()}
                 on_apply         = {this.on_new_settings}
             >
-                <D3Heatmap
-                    $data        = {this.$heatmap_data}
-                    $x_axis      = {this.$t_axis}
-                    $y_axis      = {this.$f_axis}
-                    on_click     = {() => {}}
-                    $title       = {this.$title}
-                    y_axis_label = 'Frequency (Hz)'
-                    x_axis_label = 'Time (UTC)'
-                    enable_hover = {false}
-                    enable_zoom  = {false}
-                    downsample   = 'maxpool'
-                />
+                <div ref = {this.plot_container_ref} style = {{width: '100%', height: '100%'}}>
+                    <D3Heatmap
+                        $data        = {this.$heatmap_data}
+                        $x_axis      = {this.$t_axis}
+                        $y_axis      = {this.$f_axis}
+                        on_click     = {() => {}}
+                        $title       = {this.$title}
+                        y_axis_label = 'Frequency (Hz)'
+                        enable_hover = {false}
+                        enable_zoom  = {false}
+                        downsample   = 'maxpool'
+                    />
+                </div>
             </SettingsContainer>
         </ContainerWithOverlay>
         </>
     }
 
     override componentWillUnmount(): void {
-        this.#_1()
+        this.#update_effect_cleanup_fn()
     }
 
     /** Parameters modified by the user. */
@@ -80,6 +95,60 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted below
+    }
+
+    plot_container_ref: preact.RefObject<HTMLDivElement> = preact.createRef()
+
+    /** Export the currently visible spectrogram to PNG. */
+    export_png = async (): Promise<void> => {
+        const data: MSEED_Data | null = this.props.$data.value
+        if(data == null) {
+            console.warn('PNG export failed: no visible spectrogram')
+            return
+        }
+
+        const container: HTMLDivElement | null = this.plot_container_ref.current
+        if(container == null) {
+            console.warn('PNG export failed: missing spectrogram container')
+            return
+        }
+
+        const svg_element: SVGSVGElement | null =
+            container.querySelector('.d3-container svg')
+        if(svg_element == null) {
+            console.warn('PNG export failed: no visible spectrogram SVG')
+            return
+        }
+
+        const i0: number = data.slice_start_index
+        const start_time: Date = new Date(
+            data.start_time.getTime() + i0 * 1000 / data.fs
+        )
+
+        const filename: string = format_png_export_filename(
+            strftime_ISO8601_datetime(start_time),
+            data.code,
+            'spectrogram',
+        )
+        const png_file: File | Error = await export_visible_svgs_to_png(
+            [svg_element],
+            filename,
+        )
+        if(png_file instanceof Error) {
+            console.warn('PNG export failed:', png_file.message)
+            return
+        }
+
+        trigger_file_download(png_file)
+    }
+
+    to_component_settings_actions(): SettingsAction[] {
+        return [
+            {
+                label: 'Export PNG',
+                on_click: this.export_png,
+            },
+        ]
     }
 
 
@@ -96,7 +165,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     $title: Signal<string> = new Signal('')
 
 
-    #_1 = signals.effect( (() => {
+    #update_effect_cleanup_fn = signals.effect( (() => {
         // TODO: reset plot, in case of errors later
 
         // signal subscriptions first

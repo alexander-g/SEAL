@@ -12,6 +12,11 @@ import {
     type SignalPlotData,
 } from "../ui/d3-signal-plot.tsx"
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
+import {
+    export_visible_svgs_to_png,
+    format_png_export_filename,
+    trigger_file_download,
+} from './plot-export.ts'
 
 import type { Response }     from "../lib/station-xml.ts"
 import * as signalprocessing from "../lib/signal-processing.ts"
@@ -55,7 +60,10 @@ export class MSEED_SignalPlot extends preact.Component<{
             <SettingsContainer
                 settings_entries = {this.settings.to_component_settings_entries()}
                 extra_actions    = {
-                    this.settings.to_component_settings_actions(this.export_signal)
+                    this.settings.to_component_settings_actions(
+                        this.export_signal,
+                        this.export_png,
+                    )
                 }
                 on_apply         = {this.on_new_settings}
             >
@@ -64,7 +72,7 @@ export class MSEED_SignalPlot extends preact.Component<{
                     flexDirection:'column',
                     height: '100%',
                     // minHeight: 0,
-                }}>
+                }} ref = {this.plots_container_ref}>
                     { this.$d3_signal_plots }
                 </div>
             </SettingsContainer>
@@ -217,6 +225,51 @@ export class MSEED_SignalPlot extends preact.Component<{
         }
 
         trigger_file_download(file)
+    }
+
+
+    plots_container_ref: preact.RefObject<HTMLDivElement> = preact.createRef()
+
+
+    /** Export the currently visible signal plot(s) as PNG. */
+    export_png = async (): Promise<void> => {
+        const container: HTMLDivElement | null =
+            this.plots_container_ref.current
+        if(container == null) {
+            console.warn('PNG export failed: missing plot container')
+            return
+        }
+
+        const svg_elements: SVGSVGElement[] = Array.from(
+            container.querySelectorAll('.d3-signal-plot svg')
+        )
+        if(svg_elements.length == 0) {
+            console.warn('PNG export failed: no visible signal plot SVG')
+            return
+        }
+
+        const export_data: ExportSignalPayload | Error =
+            this.build_export_payload()
+        if(export_data instanceof Error) {
+            console.warn('PNG export failed:', export_data.message)
+            return
+        }
+
+        const filename: string = format_png_export_filename(
+            strftime_ISO8601_datetime(export_data.start_time),
+            export_data.code,
+            'signal',
+        )
+        const png_file: File | Error = await export_visible_svgs_to_png(
+            svg_elements,
+            filename,
+        )
+        if(png_file instanceof Error) {
+            console.warn('PNG export failed:', png_file.message)
+            return
+        }
+
+        trigger_file_download(png_file)
     }
 
     /** Build the data payload to export based on current settings. */
@@ -378,11 +431,18 @@ export class MSEED_SignalPlotSettings {
         ]
     }
 
-    to_component_settings_actions(on_export: () => void): SettingsAction[] {
+    to_component_settings_actions(
+        on_export_mseed: () => void,
+        on_export_png: () => void,
+    ): SettingsAction[] {
         return [
             {
                 label:      'Export MSEED',
-                on_click:   on_export,
+                on_click:   on_export_mseed,
+            },
+            {
+                label:      'Export PNG',
+                on_click:   on_export_png,
             },
         ]
     }
@@ -469,16 +529,4 @@ function format_export_filename(start_time: Date, code: string): string {
     const safe_code: string = code.trim().replace(/\s+/g, '_')
     const timestamp: string = strftime_ISO8601_datetime(start_time)
     return `${timestamp}-${safe_code}.mseed`
-}
-
-/** Trigger a browser download for a File. */
-function trigger_file_download(file: File): void {
-    const file_url: string = URL.createObjectURL(file)
-    const anchor: HTMLAnchorElement = document.createElement('a')
-    anchor.href = file_url
-    anchor.download = file.name
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(file_url)
 }
