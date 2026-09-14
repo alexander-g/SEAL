@@ -86,7 +86,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     }
 
     override componentWillUnmount(): void {
-        this.#_1()
+        this.#update_effect_cleanup_fn()
     }
 
     /** Parameters modified by the user. */
@@ -165,7 +165,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     $title: Signal<string> = new Signal('')
 
 
-    #_1 = signals.effect( (() => {
+    #update_effect_cleanup_fn = signals.effect( (() => {
         // TODO: reset plot, in case of errors later
 
         // signal subscriptions first

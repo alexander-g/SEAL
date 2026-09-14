@@ -340,6 +340,10 @@ export class MainContent extends preact.Component<MainContentProps> {
             return
         this.$plots_loading.value = true
 
+        // do not subscribe to loaded mseeds (for now)
+        // TODO: later on do subscribe, reset if the currently selected items are not in list, do not reload
+        const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.peek()
+
         const new_signal_plot_data_list: MSEED_SignalPlotData[] = []
         const old_signal_plot_data_list: MSEED_SignalPlotData[] = 
             this.$signal_plot_data.peek()
@@ -348,7 +352,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         for(const i in selected_slices) {
             const selectedslice: SelectedSignalSlice = selected_slices[i]!
             const mseed: MSEED_FileAndMeta|undefined =
-                this.props.$mseeds.value[selectedslice.file_index]
+                mseeds[selectedslice.file_index]
             if(mseed == undefined) {
                 console.error(
                     `No mseed file at index ${selectedslice.file_index}`
@@ -378,7 +382,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             const data: Float32Array|Error =
                 previous?.data
                 ?? await read_mseed_slice_across_files(
-                    this.props.$mseeds.value,
+                    mseeds,
                     selectedslice.file_index,
                     [selectedslice.start_index, slice_end_index],
                 )
