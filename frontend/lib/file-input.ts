@@ -224,7 +224,7 @@ export async function read_mseed_slice_across_files(
                 const out_index: number = output_start_index + i
                 if(filled[out_index] == 1)
                     continue
-                output[out_index] = data[i] ?? 0
+                output[out_index] = data[i] ?? data[data.length-1]!
                 filled[out_index] = 1
             }
         }
