@@ -28,9 +28,14 @@ export type SpectrogramFrameRange = {
     frame_end?:   number
 }
 
+type SpectrogramChunkMeta = {
+    frame_start: number
+    frame_end:   number
+}
+
 
 // not worth it for less than that
-const HARDCODED_FRAMES_PER_WORKER = 20000
+const HARDCODED_FRAMES_PER_WORKER = 10000
 
 
 export async function create_spectrogram_for_visualization_parallelized(
@@ -61,21 +66,44 @@ export async function create_spectrogram_for_visualization_parallelized(
     const workerpool = WorkerPool.get_instance()
     type ChunkPromise = ReturnType<WorkerPool['compute_spectrogram_for_visualization']>
     const outputpromises: ChunkPromise[] = []
+    const chunk_meta: SpectrogramChunkMeta[] = []
     for(let i:number = 0; i < n_chunks; i++) {
-        const range: SpectrogramFrameRange = {
+        const range: SpectrogramChunkMeta = {
             frame_start: i * chunksize,
             frame_end:   (i+1 == n_chunks) ? plan.frame_count : (i+1) * chunksize
         }
+
+        const sample_start: number = range.frame_start * plan.hop_size
+        const sample_end: number = Math.min(
+            signal.length,
+            (range.frame_end - 1) * plan.hop_size + plan.n_per_segment,
+        )
+        const signal_chunk: Float32Array = signal.slice(sample_start, sample_end)
+        const local_plan: SpectrogramPlan = {
+            ...plan,
+            frame_count: range.frame_end - range.frame_start,
+        }
+
         const promise: ChunkPromise = 
-            workerpool.compute_spectrogram_for_visualization(signal, fs, plan, range)
+            workerpool.compute_spectrogram_for_visualization(
+                signal_chunk,
+                fs,
+                local_plan,
+            )
         outputpromises.push(promise)
+        chunk_meta.push(range)
     }
 
     const resolved_chunks: (SpectrogramOutput|Error)[] = []
     for(const promise of outputpromises)
         resolved_chunks.push(await (await promise).promise)
 
-    return merge_partial_spectrogram_outputs(resolved_chunks)
+    return merge_partial_spectrogram_outputs(
+        resolved_chunks,
+        chunk_meta,
+        fs,
+        plan.hop_size,
+    )
 }
 
 
@@ -283,10 +311,17 @@ function compute_stft_frame_count(
 
 
 function merge_partial_spectrogram_outputs(
-    partials: (SpectrogramOutput|Error)[],
+    partials:  (SpectrogramOutput|Error)[],
+    chunk_meta: SpectrogramChunkMeta[],
+    fs:         number,
+    hop_size:   number,
 ): SpectrogramOutput|Error {
     if(partials.length == 0)
         return new Error('merge_partial_spectrogram_outputs: empty partials')
+    if(chunk_meta.length != partials.length)
+        return new Error('merge_partial_spectrogram_outputs: metadata mismatch')
+    if(fs <= 0 || hop_size <= 0)
+        return new Error('merge_partial_spectrogram_outputs: invalid timing')
 
     for(const partial of partials)
         if(partial instanceof Error)
@@ -311,8 +346,18 @@ function merge_partial_spectrogram_outputs(
 
     const t_axis: Float32Array = new Float32Array(t_axis_length)
     let offset: number = 0
-    for(const partial of resolved_partials) {
-        t_axis.set(partial.t_axis, offset)
+    for(let i:number = 0; i < resolved_partials.length; i++) {
+        const partial: SpectrogramOutput = resolved_partials[i]!
+        const meta: SpectrogramChunkMeta = chunk_meta[i]!
+        const expected_length: number = meta.frame_end - meta.frame_start
+        if(partial.t_axis.length != expected_length)
+            return new Error(
+                'merge_partial_spectrogram_outputs: frame count mismatch'
+            )
+
+        const chunk_time_offset_s: number = meta.frame_start * hop_size / fs
+        for(let j:number = 0; j < partial.t_axis.length; j++)
+            t_axis[offset + j] = partial.t_axis[j]! + chunk_time_offset_s
         offset += partial.t_axis.length
     }
 

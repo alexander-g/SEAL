@@ -176,14 +176,18 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
 
     #update_effect_cleanup_fn = signals.effect( (async () => {
     try {
-        this.$updating.value = true
-
+        // signal subscriptions first
         const data: MSEED_Data|null = this.props.$data.value;
         const f_min: number = this.settings.$f_min.value
         const f_max: number = this.settings.$f_max.value
         const signal_length: number = this.settings.$slice_length.value
         const scale: boolean = this.settings.$scale_colors.value
 
+        if(this.$updating.peek())
+            return
+        this.$updating.value = true
+
+        
         if(data == null) {
             console.log('TODO: reset spectrogram')
             return;
