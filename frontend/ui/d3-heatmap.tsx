@@ -314,7 +314,7 @@ export class D3Heatmap extends preact.Component<{
     $svgimage_href: Signal<string|undefined> = new Signal(undefined)
 
     /** Render the current data input onto the <image> element. */
-    update_heatmap = async () => {
+    update_heatmap = /*not-async*/ () => {
         // NOTE: $data.value is up here to make sure its subscribed
         const data: DataItem[] = this.props.$data.value
         const rowscols: RowsCols|null = this.$rowscols.value
@@ -336,16 +336,17 @@ export class D3Heatmap extends preact.Component<{
         )
         imdata.data.set(pixels.pixels)
         ctx.putImageData(imdata, 0, 0)
-
-
-        const blob = await canvas.convertToBlob({ type: 'image/png' })
-        const f = new File([blob], 'file.png', { type: blob.type })
         
-        if(this.heatmap_image_url != null)
-            URL.revokeObjectURL(this.heatmap_image_url)
-        this.heatmap_image_url = URL.createObjectURL(f)
-        // svgimage.href.baseVal = this.heatmap_image_url
-        this.$svgimage_href.value = this.heatmap_image_url
+        // NOTE: .then() to keep this function sychronous
+        // otherwise results in a (larger) visual delay
+        canvas.convertToBlob({ type: 'image/png' }).then((blob:Blob) => {
+            const f = new File([blob], 'file.png', { type: blob.type })
+        
+            if(this.heatmap_image_url != null)
+                URL.revokeObjectURL(this.heatmap_image_url)
+            this.heatmap_image_url = URL.createObjectURL(f)
+            this.$svgimage_href.value = this.heatmap_image_url
+        })
     }
     #_1 = signals.effect( () => { this.update_heatmap() } )
 

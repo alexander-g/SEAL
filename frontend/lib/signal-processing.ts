@@ -69,6 +69,8 @@ export function stft(
     hop_size:    number = 256,
     n_fft:       number = 1024,
     windowtype:  'hann'|null = 'hann',
+    frame_start: number = 0,
+    frame_end:   number|undefined = undefined,
 ): STFTOutput | Error {
     if(window_size <= 0 || hop_size <= 0 || n_fft <= 0)
         return new Error('stft: window_size, hop_size, n_fft must be > 0')
@@ -84,6 +86,16 @@ export function stft(
     const window_sum: number = compute_window_sum(window) ?? 1
     const frame_count: number = 
         compute_frame_count_for_stft(signal.length, window_size, hop_size)
+    const selected_frame_end: number = frame_end ?? frame_count
+    if(frame_start < 0 || frame_start > frame_count)
+        return new Error('stft: frame_start out of range')
+    if(selected_frame_end < 0 || selected_frame_end > frame_count)
+        return new Error('stft: frame_end out of range')
+    if(selected_frame_end <= frame_start)
+        return new Error('stft: empty frame range')
+
+    const selected_frame_count: number = selected_frame_end - frame_start
+
     const padded_length: number =
         (frame_count - 1) * hop_size + window_size
     const padded_signal: Float32Array = new Float32Array(padded_length)
@@ -91,7 +103,11 @@ export function stft(
 
     const fft_engine = new fftjs(n_fft)
     const frames: Float32Array[] = []
-    for(let frame_index:number = 0; frame_index < frame_count; frame_index++) {
+    for(
+        let frame_index:number = frame_start;
+        frame_index < selected_frame_end;
+        frame_index++
+    ) {
         const start: number = frame_index * hop_size
         const frame_padded: Float32Array = new Float32Array(n_fft)
 
@@ -109,9 +125,9 @@ export function stft(
     for(let i:number = 0; i < f_axis.length; i++)
         f_axis[i] = i / (f_axis.length - 1) * fs / 2
 
-    const t_axis: Float32Array = new Float32Array(frame_count)
-    for(let i:number = 0; i < frame_count; i++)
-        t_axis[i] = i * hop_size / fs
+    const t_axis: Float32Array = new Float32Array(selected_frame_count)
+    for(let i:number = 0; i < selected_frame_count; i++)
+        t_axis[i] = (i + frame_start) * hop_size / fs
 
     return {
         frames,
