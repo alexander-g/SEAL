@@ -1,18 +1,30 @@
 import { is_deno } from '../lib/util.ts'
 
 import type { 
-    ComputeEnvelopeTask, 
-    ComputeBandPowerRatioTask,
     Task,
     WorkerResult,
 } from './worker.ts'
 import type { FrequencyBand } from './signal-processing.ts'
+import {
+    type SpectrogramOutput,
+    type SpectrogramFrameRange,
+    type SpectrogramPlan,
+} from './signal-processing-visualization.ts'
 
 
 
-/** Pool of web workers for compute intensive tasks */
+/** Pool of web workers for compute intensive tasks. Singleton. */
 export class WorkerPool {
-    constructor(size?:number) {
+    
+    public static get_instance(size?:number): WorkerPool {
+        if(!WorkerPool.instance)
+            WorkerPool.instance = new WorkerPool(size)
+        return WorkerPool.instance
+    }
+    private static instance: WorkerPool|null = null;
+
+
+    private constructor(size?:number) {
         size = size ?? navigator.hardwareConcurrency;
 
         for(let i:number = 0; i < size; i++) {
@@ -37,21 +49,10 @@ export class WorkerPool {
         f_min:  number, 
         f_max:  number
     ): Promise<{promise: Promise<Float32Array|Error>}> {
-        return new Promise( (promise_resolve) => {
-            const task_id:number = this.next_id++;
-            const task: Task = 
-                {type:'compute-envelope', signal, fs, f_min, f_max, task_id}
-
-            const result_promise: PromiseWithResolve<Float32Array|Error> =
-                create_promise_to_promise<Float32Array|Error>()
-            this.queue.push({
-                task,
-                worker:        undefined,
-                start_resolve: promise_resolve,
-                result_promise,
-            })
-            this.run_next()
-        } )
+        const task_id:number = this.next_id++
+        const task: Task = 
+            {type:'compute-envelope', signal, fs, f_min, f_max, task_id}
+        return this.enqueue_task<Float32Array>(task)
     }
 
     compute_band_power_ratio(
@@ -61,28 +62,54 @@ export class WorkerPool {
         numerator_band:   FrequencyBand,
         denominator_band: FrequencyBand,
     ): Promise<{promise: Promise<Float32Array|Error>}> {
-        return new Promise( (promise_resolve) => {
-            const task_id:number = this.next_id++;
-            const task: Task = {
-                type:'band-power-ratio', 
-                signal, 
-                fs, 
-                window,
-                numerator_band,
-                denominator_band,
-                task_id, 
-            }
+        const task_id:number = this.next_id++
+        const task: Task = {
+            type:'band-power-ratio',
+            signal,
+            fs,
+            window,
+            numerator_band,
+            denominator_band,
+            task_id,
+        }
+        return this.enqueue_task<Float32Array>(task)
+    }
 
-            const result_promise: PromiseWithResolve<Float32Array|Error> =
-                create_promise_to_promise<Float32Array|Error>()
-            this.queue.push({
+    compute_spectrogram_for_visualization(
+        signal:      Float32Array,
+        fs:          number,
+        plan:        SpectrogramPlan,
+        framerange?: SpectrogramFrameRange,
+    ): Promise<{promise: Promise<SpectrogramOutput|Error>}> {
+        const task_id:number = this.next_id++
+        const task: Task = {
+            type: 'compute-spectrogram',
+            signal,
+            fs,
+            plan,
+            framerange,
+            task_id,
+        }
+        return this.enqueue_task<SpectrogramOutput>(task)
+    }
+
+    enqueue_task<T>(task:Task): Promise<{promise: Promise<T|Error>}> {
+        return new Promise((promise_resolve) => {
+            const result_promise: PromiseWithResolve<T|Error> =
+                create_promise_to_promise<T|Error>()
+            const job: Job = {
                 task,
-                worker:        undefined,
-                start_resolve: promise_resolve,
-                result_promise,
-            })
+                worker: undefined,
+                start_resolve: (result:{promise:Promise<unknown>}) =>
+                    promise_resolve(result as {promise: Promise<T|Error>}),
+                resolve_result: (result:unknown) =>
+                    result_promise.resolve(result as T|Error),
+                resolve_error: (error:Error) => result_promise.resolve(error),
+                promise: result_promise.promise,
+            }
+            this.queue.push(job)
             this.run_next()
-        } )
+        })
     }
 
 
@@ -97,11 +124,18 @@ export class WorkerPool {
         const message: WorkerResult = event.data
 
         const job: Job|undefined = this.pending[message.task_id]
-        if(message.type == 'compute-envelope')
-            job?.result_promise?.resolve(message.envelope)
-        else if(message.type == 'band-power-ratio')
-            job?.result_promise?.resolve(message.ratio)
-        else
+        if(job == undefined)
+            console.error('Received result for unknown task: ', message)
+        else if(message.type == 'compute-envelope') {
+            if(job.task.type == 'compute-envelope')
+                job.resolve_result(message.envelope)
+        } else if(message.type == 'band-power-ratio') {
+            if(job.task.type == 'band-power-ratio')
+                job.resolve_result(message.ratio)
+        } else if(message.type == 'compute-spectrogram') {
+            if(job.task.type == 'compute-spectrogram')
+                job.resolve_result(message.spectrogram)
+        } else
             console.error('Received unknown worker result: ', message)
 
         if(job?.worker != undefined)
@@ -116,7 +150,7 @@ export class WorkerPool {
         console.log('WORKER ERROR:', event)
         for (const [task_id, job] of Object.entries(this.pending)) {
             if (job.worker?.worker === event.target) {
-                job.result_promise.resolve(new Error(event.message))
+                job.resolve_error(new Error(event.message))
                 delete this.pending[Number(task_id)]
             }
         }
@@ -137,7 +171,7 @@ export class WorkerPool {
 
         worker.busy = true;
         worker.worker.postMessage(task)
-        job.start_resolve({promise:job.result_promise.promise})
+        job.start_resolve({promise:job.promise})
     }
 
     next_id = 1;
@@ -151,23 +185,14 @@ type WorkerWithBusyFlag = {
 }
 
 
-type ComputeEnvelopeJob = {
-    task:    ComputeEnvelopeTask;
-    worker:  WorkerWithBusyFlag|undefined;
-    
-    start_resolve:  (result:{promise:Promise<Float32Array|Error>}) => void;
-    result_promise: PromiseWithResolve<Float32Array|Error>;
+type Job = {
+    task:           Task
+    worker:         WorkerWithBusyFlag|undefined
+    start_resolve:  (result:{promise: Promise<unknown>}) => void
+    resolve_result: (result:unknown) => void
+    resolve_error:  (error:Error) => void
+    promise:        Promise<unknown>
 }
-
-type ComputeBandPowerRatioJob = {
-    task:    ComputeBandPowerRatioTask;
-    worker:  WorkerWithBusyFlag|undefined;
-    
-    start_resolve:  (result:{promise:Promise<Float32Array|Error>}) => void;
-    result_promise: PromiseWithResolve<Float32Array|Error>;
-}
-
-type Job = ComputeEnvelopeJob | ComputeBandPowerRatioJob;
 
 
 

@@ -1,26 +1,32 @@
 import { preact, Signal, signals, JSX } from '../dep.ts'
 
 import { 
-    create_spectrogram_for_visualization, 
+    create_spectrogram_for_visualization_parallelized, 
     type SpectrogramOutput,
 } from '../lib/signal-processing-visualization.ts'
+
 import {
     SettingsContainer,
     type SettingsEntry,
     type SettingsAction,
 } from '../ui/component-settings.tsx'
+
 import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
+
 import {
     find_first_above,
     find_last_below,
     strftime_ISO8601_datetime,
 } from '../lib/util.ts'
+
 import {
     export_visible_svgs_to_png,
     format_png_export_filename,
     trigger_file_download,
 } from './plot-export.ts'
+
+
 
 
 
@@ -59,7 +65,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     render(): JSX.Element {
         return <>
         <ContainerWithOverlay
-            $is_loading = {this.props.$loading}
+            $is_loading = {this.$loading_or_updating}
             uninitialized_message = 'Select a MSEED channel and time to plot here.'
         >
             <SettingsContainer
@@ -165,10 +171,13 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     $title: Signal<string> = new Signal('')
 
 
-    #update_effect_cleanup_fn = signals.effect( (() => {
-        // TODO: reset plot, in case of errors later
+    /** Flag indicating if a new spectrogram is currently being computed */
+    $updating: Signal<boolean> = new Signal(false)
 
-        // signal subscriptions first
+    #update_effect_cleanup_fn = signals.effect( (async () => {
+    try {
+        this.$updating.value = true
+
         const data: MSEED_Data|null = this.props.$data.value;
         const f_min: number = this.settings.$f_min.value
         const f_max: number = this.settings.$f_max.value
@@ -184,7 +193,12 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         const i1:number = i0 + signal_length * data.fs
 
         const spectrogram_output: SpectrogramOutput|Error = 
-            create_spectrogram_for_visualization(data.signal, data.fs, i0, i1,)
+            await create_spectrogram_for_visualization_parallelized(
+                data.signal, 
+                data.fs, 
+                i0, 
+                i1
+            )
         if(spectrogram_output instanceof Error) {
             console.error(
                 `Error computing spectrogram: ${spectrogram_output.message}`
@@ -215,10 +229,15 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         this.$t_axis.value = t_axis
         this.$f_axis.value = f_axis
         this.$title.value = title
-        
-    }) as () => void  )
+    } finally {
+        this.$updating.value = false;
+    }
+    }) as () => void)
 
 
+    $loading_or_updating: Readonly<Signal<boolean>> = signals.computed( () => {
+        return this.props.$loading.value || this.$updating.value;
+    } )
 }
 
 

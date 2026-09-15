@@ -3,6 +3,13 @@ import {
     compute_envelope ,
     type FrequencyBand,
 } from "./signal-processing.ts"
+import {
+    create_spectrogram,
+    postprocess_spectrogram,
+    type SpectrogramOutput,
+    type SpectrogramFrameRange,
+    type SpectrogramPlan,
+} from './signal-processing-visualization.ts'
 
 
 
@@ -27,8 +34,21 @@ export type ComputeBandPowerRatioTask = {
     task_id: number;
 }
 
+export type ComputeSpectrogramTask = {
+    type:        'compute-spectrogram'
+    signal:      Float32Array
+    fs:          number
+    plan:        SpectrogramPlan
+    framerange?: SpectrogramFrameRange
 
-export type Task = ComputeEnvelopeTask | ComputeBandPowerRatioTask;
+    task_id:     number
+}
+
+
+export type Task =
+    | ComputeEnvelopeTask
+    | ComputeBandPowerRatioTask
+    | ComputeSpectrogramTask
 
 
 
@@ -44,8 +64,17 @@ export type ComputeBandPowerRatioResult = {
     ratio:    Float32Array;
 }
 
+export type ComputeSpectrogramResult = {
+    type:        'compute-spectrogram'
+    task_id:     number
+    spectrogram: SpectrogramOutput | Error
+}
 
-export type WorkerResult = ComputeEnvelopeResult | ComputeBandPowerRatioResult;
+
+export type WorkerResult =
+    | ComputeEnvelopeResult
+    | ComputeBandPowerRatioResult
+    | ComputeSpectrogramResult
 
 
 
@@ -80,9 +109,24 @@ self.onmessage = async (e:MessageEvent) => {
             task_id: task.task_id,
             ratio :  ratio,
         }
-    } else {
+    } else if(task.type == 'compute-spectrogram') {
+        let spectrogram: SpectrogramOutput|Error =
+            create_spectrogram(
+                task.signal,
+                task.fs,
+                task.plan,
+                task.framerange
+            )
+        if(!(spectrogram instanceof Error))
+            spectrogram = postprocess_spectrogram(spectrogram)
+        
+        result = {
+            type:        'compute-spectrogram',
+            task_id:     task.task_id,
+            spectrogram: spectrogram,
+        }
+    } else
         result = new Error(`Unknown worker task type: ${tasktype}`)
-    }
 
     self.postMessage(result)
 }
@@ -107,5 +151,4 @@ self.onunhandledrejection = (e:PromiseRejectionEvent) => {
     self.postMessage(new Error(msg))
     self.close()
 }
-
 

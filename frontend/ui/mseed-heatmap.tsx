@@ -425,6 +425,7 @@ export class MSEED_Heatmap extends preact.Component<{
 
 
         const promises: {promise:Promise<HeatmapDataItemWithFile[]>, index:number}[] = []
+        const workerpool = WorkerPool.get_instance()
 
         for(const index of file_indices) {
             this.$overlay_message.value = 
@@ -447,7 +448,7 @@ export class MSEED_Heatmap extends preact.Component<{
             const window: number = Math.floor( HARDCODED_BIN_LENGTH_SECONDS * fs )
             
             const ratios_promise: Promise<Float32Array|Error> = (
-                await this.#pool!.compute_band_power_ratio(
+                await workerpool.compute_band_power_ratio(
                     signal, 
                     fs, 
                     window, 
@@ -474,17 +475,6 @@ export class MSEED_Heatmap extends preact.Component<{
     }
 
 
-
-    #pool:WorkerPool|undefined;
-    override componentWillMount(): void {
-        // NOTE: will block build.ts otherwise
-        if(!is_deno())
-            this.#pool = new WorkerPool()
-    }
-    override componentWillUnmount(): void {
-        this.#pool?.terminate()
-    }
-
     async compute_envelope_heatmap_items(): Promise<EnvelopeHeatmapItem[]|Error> {
         const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
         const file_indices: Set<number> = 
@@ -494,9 +484,9 @@ export class MSEED_Heatmap extends preact.Component<{
         const f_max: number = this.settings.$envelope_bandpass_fmax.value
 
 
-        //const promises: {promise:Promise<Float32Array|Error>, index:number}[] = []
         const promises: {promise:Promise<EnvelopeHeatmapItem[]>, index:number}[] = []
-        
+
+        const workerpool = WorkerPool.get_instance()
         for(const index of file_indices) {
             this.$overlay_message.value = 
                 `Loading ${index}/${file_indices.size}`
@@ -513,7 +503,7 @@ export class MSEED_Heatmap extends preact.Component<{
             const fs:number = mseed.meta.samplerate
 
             const envelope_promise: Promise<Float32Array|Error> = 
-                (await this.#pool!.compute_envelope(data, fs, f_min, f_max)).promise
+                (await workerpool.compute_envelope(data, fs, f_min, f_max)).promise
             const heatmapitems_promise: Promise<EnvelopeHeatmapItem[]> = 
                 convert_envelope_to_heatmap_items(
                     envelope_promise, 
