@@ -19,7 +19,7 @@ export class Axes extends preact.Component<{
     $rowscols: Readonly<Signal<RowsCols|null>>,
 
     /** Values along the x axis */
-    $x_axis:Readonly<Signal<number[]>>,
+    $x_axis:Readonly<Signal<(number[]|Date[])>>,
 
     /** Values along the y axis */
     $y_axis:Readonly<Signal<string[]>>,
@@ -53,9 +53,9 @@ export class Axes extends preact.Component<{
     
     update_axes = () => {
         // NOTE: accessing $signals up here to make sure they are subscribed to
-        const t:d3.ZoomTransform = this.props.$zoom_transform.value
-        const x_axis:number[]    = this.props.$x_axis.value
-        const y_axis:string[]    = this.props.$y_axis.value
+        const t:d3.ZoomTransform     = this.props.$zoom_transform.value
+        const x_axis:number[]|Date[] = this.props.$x_axis.value
+        const y_axis:string[]        = this.props.$y_axis.value
         const y_axis_tick_values:number[]|undefined =
             this.props.$y_axis_tick_values?.value
         const colsrows:RowsCols|null = this.props.$rowscols.value
@@ -85,30 +85,17 @@ export class Axes extends preact.Component<{
                 .domain([0, rows])
                 .range([h, 0])
             )
-
-
-        const step_size_x:number = Math.floor((zx.invert(w) - zx.invert(0)) / 5)
-
-        // index of first data column at plot position 0 (clipped)
-        const first_col_in_bounds:number = Math.max(zx.invert(0), 0)
-        const last_col_in_bounds:number = Math.min(zx.invert(w), cols)
         
-
-        const d3_x_axis_tickvalues: d3.Axis<d3.NumberValue> = 
-            d3.axisBottom(zx)
-            .tickValues(
-                d3.range( 
-                    Math.ceil(first_col_in_bounds), 
-                    Math.floor(last_col_in_bounds), 
-                    step_size_x 
-                )
+        
+        let d3_x_axis: d3.Axis<Date|d3.NumberValue>|null = 
+            create_d3_axis_for_dates_or_numbers(x_axis, zx)
+                
+        const x_tickvalues:Date[]|d3.NumberValue[] = d3_x_axis?.tickValues() ?? []
+        d3_x_axis?.tickFormat(
+                ((_, i) => this.#format_x_axis_value(x_tickvalues, i) )
             )
-        const x_axis_tickvalues: number[] = 
-            d3_x_axis_tickvalues.tickValues()!.map(Number)
-        const d3_x_axis: d3.Axis<d3.NumberValue> = 
-            d3_x_axis_tickvalues.tickFormat( 
-                (_, i) => this.#format_x_axis_value(x_axis, x_axis_tickvalues, i) 
-            )
+            ?? null
+        
         const d3_y_axis: d3.Axis<d3.NumberValue> = 
             d3.axisLeft(zy)
             .tickValues(this.#resolve_y_axis_tick_values(rows, y_axis_tick_values))
@@ -116,9 +103,10 @@ export class Axes extends preact.Component<{
                 this.#format_y_axis_value(y_axis, Number(value))
             )
 
-        d3.select(this.xaxis_ref.current)
-            // @ts-ignore this is correct 
-            .call(d3_x_axis);
+        if(d3_x_axis != null)
+            d3.select(this.xaxis_ref.current)
+                // @ts-ignore this is correct 
+                .call(d3_x_axis);
         d3.select(this.yaxis_ref.current)
             // @ts-ignore this is correct 
             .call(d3_y_axis);
@@ -130,24 +118,25 @@ export class Axes extends preact.Component<{
         `translate(0,${this.props.$dimensions.value.plot_height})`
     )
 
-    #format_x_axis_value(x_axis:number[], ticks:number[], tick_index:number): string {
-        const axis_index:number = ticks[tick_index]!
-        const value:number|undefined = x_axis[axis_index]
+    #format_x_axis_value(ticks:d3.NumberValue[]|Date[], tick_index:number): string {
+        const value:d3.NumberValue|Date|undefined = ticks[tick_index]
         if(value == undefined)
             return ''
 
         const formatter:((value:number)=>string)|undefined =
             this.props.x_axis_label_formatter
-        if(formatter != undefined)
-            return formatter(value)
+        if(formatter != undefined && !(value instanceof Date))
+            return formatter(Number(value))
 
+        if(!(value instanceof Date))
+            return value.toString()
 
         // TODO: time is only implicit, make it explicit in the props
-        const as_date = new Date( value * 1000 )
+        const as_date = new Date( value )
         if(tick_index == 0)
             return strftime_ISO8601_datetime(as_date)
         else {
-            const previous_date = new Date( x_axis[ticks[tick_index-1]!]! * 1000 )
+            const previous_date: Date = ticks[tick_index-1]! as Date
             if( same_day(as_date, previous_date) )
                 return strftime_ISO8601_time(as_date)
             else
@@ -180,8 +169,90 @@ export class Axes extends preact.Component<{
 
 function same_day(a:Date, b:Date): boolean {
     return (
-        a.getFullYear() === b.getFullYear() &&
-        a.getMonth() === b.getMonth() &&
-        a.getDate() === b.getDate()
+        a.getUTCFullYear() === b.getUTCFullYear() &&
+        a.getUTCMonth() === b.getUTCMonth() &&
+        a.getUTCDate() === b.getUTCDate()
     )
+}
+
+function interpolate_axis_value(
+    x_axis:      number[],
+    float_index: number,
+): number | undefined {
+    if(x_axis.length == 0)
+        return undefined
+
+    if(float_index <= 0)
+        return x_axis[0]
+
+    const last_index: number = x_axis.length - 1
+    if(float_index >= last_index)
+        return x_axis[last_index]
+
+    const low_index: number  = Math.floor(float_index)
+    const high_index: number = Math.ceil(float_index)
+    const low: number   = x_axis[low_index]!
+    const high: number  = x_axis[high_index]!
+    const ratio: number = float_index - low_index
+    return low + (high - low) * ratio
+}
+
+
+
+function create_d3_axis_for_dates_or_numbers(
+    values: Date[]|number[], 
+    scale:  d3.ScaleLinear<number,number>
+): d3.Axis<Date|d3.NumberValue>|null {
+    const scale_range:number[] = scale.range()
+    const scale_domain:number[] = scale.domain()
+
+    const n_pixels:number = scale_range[scale_range.length-1]!
+    const n_values:number = scale_domain[scale_domain.length-1]!
+
+
+    // index of first/last visible data column at plot bounds (clipped)
+    const first_index_in_bounds:number = Math.max(scale.invert(0), 0)
+    const last_index_in_bounds:number = 
+        Math.min(scale.invert(n_pixels), n_values - 1)
+
+
+    const values_t: number[] = values.map( Number )
+
+    const first_visible_value: number|undefined = 
+        interpolate_axis_value(values_t, first_index_in_bounds)
+    const last_visible_value: number|undefined = 
+        interpolate_axis_value(values_t, last_index_in_bounds)
+    if(first_visible_value == undefined || last_visible_value == undefined)
+        return null
+
+    if(values[0] instanceof Date) {
+        const x_axis_scale: d3.ScaleTime<number, number> = d3.scaleUtc()
+            .domain([
+                new Date(first_visible_value),
+                new Date(last_visible_value),
+            ])
+            .range([0, n_pixels])
+
+        const x_tickvalues: Date[] = x_axis_scale.ticks(5)
+        const d3_axis: d3.Axis<Date|d3.NumberValue> = 
+            d3.axisBottom(x_axis_scale)
+            .tickValues(x_tickvalues)
+
+        return d3_axis
+    } 
+    // else
+
+    const x_axis_scale: d3.ScaleLinear<number, number> = d3.scaleLinear()
+        .domain([
+            first_visible_value,
+            last_visible_value,
+        ])
+        .range([0, n_pixels])
+
+    const x_tickvalues: number[] = x_axis_scale.ticks(5)
+    const d3_axis: d3.Axis<d3.NumberValue> = 
+        d3.axisBottom(x_axis_scale)
+        .tickValues(x_tickvalues)
+
+    return d3_axis
 }

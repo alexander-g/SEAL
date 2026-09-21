@@ -39,7 +39,7 @@ export type OnClickItem = {
 
 export class D3Heatmap extends preact.Component<{
     $data:  Readonly<Signal<DataItem[]>>,
-    $x_axis:Readonly<Signal<number[]>>,
+    $x_axis:Readonly<Signal<Date[]|number[]>>,
     $y_axis:Readonly<Signal<string[]>>,
 
     /** Optional values for y axis ticks */
@@ -170,7 +170,7 @@ export class D3Heatmap extends preact.Component<{
 
                             <VerticalMarkerLayer 
                                 $x_values    = {this.props.$x_axis_markers}
-                                $x_axis      = {this.props.$x_axis}
+                                $x_axis      = {this.$x_axis_as_number_array}
                                 $plot_width  = {this.$plot_width}
                                 $plot_height = {this.$plot_height}
                                 $cols        = {this.$n_cols}
@@ -481,13 +481,21 @@ export class D3Heatmap extends preact.Component<{
             my,
             root_x,
             root_y,
-            x_axis: this.props.$x_axis.value,
+            x_axis: this.props.$x_axis.value.map( 
+                (i:number|Date) => typeof i == 'number'?  i : i.getTime() / 1000
+            ),
             y_axis: this.props.$y_axis.value,
             rows_cols: this.$rowscols.value,
             dimensions: this.#get_dimensions(),
             item_index_by_coord: this.$coordinates_to_item_index.value,
         })
     }
+
+    $x_axis_as_number_array: Readonly<Signal<number[]>> = signals.computed(() => {
+        return this.props.$x_axis.value.map( 
+            t => (typeof t) == 'number' ? t : t.getTime() /1000
+        )
+    })
 }
 
 
