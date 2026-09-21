@@ -177,7 +177,7 @@ export class MSEED_Heatmap extends preact.Component<{
         return this.$transformed.value.items
     })
 
-    $x_axis:Readonly<Signal<number[]>> = signals.computed(() => {
+    $x_axis:Readonly<Signal<Date[]>> = signals.computed(() => {
         return this.$transformed.value.x_axis
     })
 
@@ -215,7 +215,9 @@ export class MSEED_Heatmap extends preact.Component<{
         // aligning to bin length
         const tstart:number = tmin - (tmin % bin_length_seconds)
         const tend:number   = tmax - (tmax % bin_length_seconds)
-        const x_axis:number[] = range(tstart, tend, bin_length_seconds)
+        const x_axis:Date[] = 
+            range(tstart, tend, bin_length_seconds)
+            .map((t:number) => new Date(t*1000))
 
         const all_codes:string[] = Array.from(
             new Set(files.map((item:MSeedMetadata) => combine_mseed_codes(item)))
@@ -328,15 +330,15 @@ export class MSEED_Heatmap extends preact.Component<{
         }
 
 
-        const timestamp:number|undefined = this.$x_axis.value[position.x]
-        if(timestamp == undefined) {
-            console.error(`No timestamp at x position ${position.x}`)
+        const time_value_at_hover:Date|undefined = this.$x_axis.value[position.x]
+        if(time_value_at_hover == undefined) {
+            console.error(`No time found at hover position x=${position.x}`)
             return;
         }
 
         const event_indices:number[] = 
             this.$itemized_events.value
-            .filter( e => e.time.getTime() / 1000 == timestamp )
+            .filter( e => e.time.getTime() == time_value_at_hover.getTime() )
             .map( e => e.original_event_indices )
             .flat()
         this.props.on_events_hover?.(event_indices)
@@ -549,7 +551,7 @@ export class MSEED_Heatmap extends preact.Component<{
 
 type TransformedHeatmapData = {
     items:  HeatmapDataItemWithFile[],
-    x_axis: number[],
+    x_axis: Date[],
     y_axis: string[],
 }
 

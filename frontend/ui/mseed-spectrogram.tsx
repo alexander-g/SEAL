@@ -162,7 +162,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     $heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
 
     /** X-axis values */
-    $t_axis: Signal<number[]> = new Signal([])
+    $t_axis: Signal<Date[]> = new Signal([])
 
     /** Y-axis values */
     $f_axis: Signal<string[]> = new Signal([])
@@ -230,7 +230,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             console.error('Zero spectrogram pixels.')
         
         this.$heatmap_data.value = spectrogram_heatmap_data
-        this.$t_axis.value = t_axis
+        this.$t_axis.value = t_axis.map( t => new Date(t * 1000) )
         this.$f_axis.value = f_axis
         this.$title.value = title
     } finally {
