@@ -34,13 +34,15 @@ export
 async function parse_file(file: File): Promise<FileResult|Error> {
     // Try MSEED
     // NOTE: should be first, much faster that way
-    const meta:Error|MSeedMetadata = await read_mseed_metadata(file)
-    if(!(meta instanceof Error))
+    const metadata:Error|MSeedMetadata[] = await read_mseed_metadata(file)
+    if(!(metadata instanceof Error)) {
+        const meta:MSeedMetadata = find_longest_trace_metadata(metadata)
         return {
             type: 'mseed',
             filename: file.name,
             meta
         }
+    }
 
     // Try StationXML
     const station: Station[] | Error = await parse_stationxml_file(file)
@@ -330,4 +332,22 @@ type FileResult = {
 | {
     type:    'unknown'
     filename: string
+}
+
+function find_longest_trace_metadata(metadata: MSeedMetadata[]): MSeedMetadata {
+    let longest_meta:MSeedMetadata = metadata[0]!
+    let longest_duration_ms:number =
+        longest_meta.endtime.getTime() - longest_meta.starttime.getTime()
+
+    for(let index:number = 1; index < metadata.length; index++) {
+        const current_meta:MSeedMetadata = metadata[index]!
+        const current_duration_ms:number =
+            current_meta.endtime.getTime() - current_meta.starttime.getTime()
+        if(current_duration_ms > longest_duration_ms) {
+            longest_meta = current_meta
+            longest_duration_ms = current_duration_ms
+        }
+    }
+
+    return longest_meta
 }

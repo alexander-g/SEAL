@@ -147,10 +147,12 @@ async function build_mseed_series(
             const buffer: Uint8Array<ArrayBuffer> = Deno.readFileSync(file_path)
             const filename: string = path.basename(file_path)
             const file: File = new File([buffer], filename)
-            const meta: MSeedMetadata|Error = await read_mseed_metadata(file)
-            if(meta instanceof Error)
-                return meta
-            output.push({file, meta})
+            const metadata: MSeedMetadata[]|Error = await read_mseed_metadata(file)
+            if(metadata instanceof Error)
+                return metadata
+            if(metadata.length == 0)
+                return new Error('Missing MSEED metadata.')
+            output.push({file, meta: metadata[0]!})
         }
     } catch(e) {
         return (e instanceof Error) ? e : new Error(String(e))

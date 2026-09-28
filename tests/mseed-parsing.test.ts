@@ -37,10 +37,10 @@ Deno.test('mseed-parsing0', async (t:Deno.TestContext) => {
         assert( is_mseed( new DataView(mseeddata.buffer) ) )
     
         const blob = new Blob([mseeddata])
-        const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
-        // console.log(output)
+        const output:MSeedMetadata[]|Error = await read_mseed_metadata(blob)
         assert(!(output instanceof Error))
-        assert(output.starttime.getUTCFullYear() == 2022)
+        assert(output.length > 0)
+        assert(output[0]!.starttime.getUTCFullYear() == 2022)
     })
 
 
@@ -49,10 +49,10 @@ Deno.test('mseed-parsing0', async (t:Deno.TestContext) => {
         assert( is_mseed( new DataView(mseeddata.buffer) ) )
     
         const blob = new Blob([mseeddata])
-        const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
-        // console.log(output)
+        const output:MSeedMetadata[]|Error = await read_mseed_metadata(blob)
         assert(!(output instanceof Error))
-        assert(output.starttime.getUTCFullYear() == 2018)
+        assert(output.length > 0)
+        assert(output[0]!.starttime.getUTCFullYear() == 2018)
     })
 
     await t.step('not-mseed', async () => {
@@ -60,7 +60,7 @@ Deno.test('mseed-parsing0', async (t:Deno.TestContext) => {
         assert( !is_mseed( new DataView(notmseed.buffer) ) )
 
         const blob = new Blob([notmseed])
-        const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
+        const output:MSeedMetadata[]|Error = await read_mseed_metadata(blob)
         assert(output instanceof Error)
     })
 
@@ -69,13 +69,51 @@ Deno.test('mseed-parsing0', async (t:Deno.TestContext) => {
         assert( is_mseed( new DataView(mseeddata.buffer) ) )
     
         const blob = new Blob([mseeddata])
-        const output:MSeedMetadata|Error = await read_mseed_metadata(blob)
+        const output:MSeedMetadata[]|Error = await read_mseed_metadata(blob)
         assert(!(output instanceof Error))
+        assert(output.length > 0)
+        const meta:MSeedMetadata = output[0]!
 
         // according to obspy:
-        assert( Math.abs(output.samplerate - 99.99) < 0.1 )
-        assert(output.starttime.toISOString().startsWith('2019-01-01T00:26'))
-        assert(output.endtime.toISOString().startsWith('2019-01-01T00:31'))
+        assert( Math.abs(meta.samplerate - 99.99) < 0.1 )
+        assert(meta.starttime.toISOString().startsWith('2019-01-01T00:26'))
+        assert(meta.endtime.toISOString().startsWith('2019-01-01T00:31'))
+    })
+
+    await t.step('dual-trace', async () => {
+        const mseeddata= Deno.readFileSync(MSEED_FILES[3]!)
+        assert( is_mseed( new DataView(mseeddata.buffer) ) )
+
+        const blob = new Blob([mseeddata])
+        const output:MSeedMetadata[]|Error = await read_mseed_metadata(blob)
+        assert(!(output instanceof Error))
+
+        assert(output.length == 2)
+
+        const first_meta:MSeedMetadata = output[0]!
+        const second_meta:MSeedMetadata = output[1]!
+
+        assert(first_meta.network == 'XX')
+        assert(first_meta.station == 'SYN')
+        assert(first_meta.location == '')
+        assert(first_meta.channel == 'SIN')
+        assert(Math.abs(first_meta.samplerate - 100) < 0.01)
+        assert(first_meta.starttime.toISOString().startsWith('2026-04-23'))
+        assert(Math.abs(
+            (first_meta.endtime.getTime() - first_meta.starttime.getTime()) / 1000
+            - 300
+        ) < 1)
+
+        assert(second_meta.network == 'XX')
+        assert(second_meta.station == 'SYN')
+        assert(second_meta.location == '')
+        assert(second_meta.channel == 'SIN')
+        assert(Math.abs(second_meta.samplerate - 100) < 0.01)
+        assert(second_meta.starttime.toISOString().startsWith('2026-04-27'))
+        assert(Math.abs(
+            (second_meta.endtime.getTime() - second_meta.starttime.getTime()) / 1000
+            - 300
+        ) < 1)
     })
 })
 
@@ -149,11 +187,13 @@ Deno.test('mseed-writing', async (t:Deno.TestContext) => {
 
         const meta2 = await read_mseed_metadata(file)
         assert(!(meta2 instanceof Error))
-        assert(meta2.samplerate == 20)
-        assert(meta2.network  == 'XX')
-        assert(meta2.station  == 'TEST')
-        assert(meta2.location == '')
-        assert(meta2.channel  == 'BHZ')
+        assert(meta2.length == 1)
+        const output_meta:MSeedMetadata = meta2[0]!
+        assert(output_meta.samplerate == 20)
+        assert(output_meta.network  == 'XX')
+        assert(output_meta.station  == 'TEST')
+        assert(output_meta.location == '')
+        assert(output_meta.channel  == 'BHZ')
 
 
         const readresult = await tremorwasm.read_data(file)

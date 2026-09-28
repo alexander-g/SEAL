@@ -9,15 +9,17 @@ export type MSeedMetadata = {
     channel:    string;
 }
 
+export class NotMSEED extends Error {}
 
 
 /** Read MiniSEED metadata from a Blob/File in the browser.
  *  Only read minimal bytes (first + last record headers). */
-export async function read_mseed_metadata(blob: Blob): Promise<MSeedMetadata|Error> {
+export 
+async function read_mseed_metadata(blob: Blob): Promise<MSeedMetadata[]|NotMSEED|Error> {
     try{
         const firstbuf:DataView = await read_slice(blob, 0, 256);
         if(!is_mseed(firstbuf))
-            return new Error('File is not in MSEED format')
+            return new NotMSEED('File is not in MSEED format')
 
         const little_endian:boolean|Error = detect_little_endian(firstbuf);
         if(little_endian instanceof Error)
@@ -32,38 +34,113 @@ export async function read_mseed_metadata(blob: Blob): Promise<MSeedMetadata|Err
         const recordlength:number = 
             get_recordlength(firstbuf, little_endian) ?? 4096;
 
-        // last record header
-        const filesize:number = blob.size;
-        const last_offset:number =
-            Math.floor(filesize / recordlength - 1) * recordlength;
+        const filesize:number = blob.size
+        const record_count:number = Math.floor(filesize / recordlength)
+        if(record_count <= 0)
+            return new Error('MSEED file has no complete records.')
 
-        const lastbuf:DataView = await read_slice(blob, last_offset, 64);
-        const last:MSEED_Header = 
-            parse_fixed_mseed_header(lastbuf, little_endian);
+        const records:MSeedMetadata[] = []
+        for(let record_index:number = 0; record_index < record_count; record_index++) {
+            const record_offset:number = record_index * recordlength
+            const recordbuf:DataView = await read_slice(blob, record_offset, 64)
+            if(recordbuf.byteLength < 48)
+                continue
+            if(!is_mseed(recordbuf))
+                continue
 
-        const duration_seconds:number = last.n_samples / last.samplerate;
-        const endtime = new Date(
-            last.starttime.getTime() + duration_seconds * 1000
-        );
-        // sanity check
-        if(endtime.getUTCFullYear() > 2100)
-            return new Error('Parsed year is far in the future.')
+            const parsed_header:MSEED_Header = 
+                parse_fixed_mseed_header(recordbuf, little_endian)
+            // sanity check
+            if(parsed_header.starttime.getUTCFullYear() > 2100)
+                return new Error('Parsed year is far in the future.')
+            if(parsed_header.samplerate <= 0)
+                return new Error('Parsed samplerate must be > 0.')
 
-        const codes:MSEED_Codes = parse_codes(firstbuf)
+            const duration_seconds:number =
+                parsed_header.n_samples / parsed_header.samplerate
+            const record_endtime:Date = new Date(
+                parsed_header.starttime.getTime() + duration_seconds * 1000
+            )
+            if(record_endtime.getUTCFullYear() > 2100)
+                return new Error('Parsed year is far in the future.')
 
-        return {
-            starttime:  first.starttime,
-            endtime:    endtime,
-            samplerate: first.samplerate,
-            network:    codes.network,
-            station:    codes.station,
-            location:   codes.location,
-            channel:    codes.channel,
-        };
+            const codes:MSEED_Codes = parse_codes(recordbuf)
+            records.push({
+                starttime:  parsed_header.starttime,
+                endtime:    record_endtime,
+                samplerate: parsed_header.samplerate,
+                network:    codes.network,
+                station:    codes.station,
+                location:   codes.location,
+                channel:    codes.channel,
+            })
+        }
+
+        if(records.length == 0)
+            return new Error('No MSEED data records found.')
+
+        return merge_records_into_segments(records)
     
     } catch (e) {
         return new Error(`Could not parse MSEED meta data: ${e}`)
     }
+}
+
+function merge_records_into_segments(records: MSeedMetadata[]): MSeedMetadata[] {
+    const sorted_records:MSeedMetadata[] = [...records].sort(
+        (meta0: MSeedMetadata, meta1: MSeedMetadata): number => {
+            const code_compare:number = combine_mseed_codes(meta0).localeCompare(
+                combine_mseed_codes(meta1)
+            )
+            if(code_compare != 0)
+                return code_compare
+            return meta0.starttime.getTime() - meta1.starttime.getTime()
+        }
+    )
+
+    const output:MSeedMetadata[] = []
+    for(const record of sorted_records) {
+        const previous:MSeedMetadata|undefined = output[output.length - 1]
+        if(previous == undefined) {
+            output.push(record)
+            continue
+        }
+        if(!same_trace(previous, record)) {
+            output.push(record)
+            continue
+        }
+
+        const sample_spacing_ms:number = 1000 / record.samplerate
+        const max_gap_ms:number = sample_spacing_ms * 1.5
+        const gap_ms:number =
+            record.starttime.getTime() - previous.endtime.getTime()
+
+        if(gap_ms > max_gap_ms) {
+            output.push(record)
+            continue
+        }
+
+        if(record.endtime.getTime() > previous.endtime.getTime())
+            previous.endtime = record.endtime
+    }
+
+    return output.sort((meta0: MSeedMetadata, meta1: MSeedMetadata) =>
+        meta0.starttime.getTime() - meta1.starttime.getTime()
+    )
+}
+
+function same_trace(meta0: MSeedMetadata, meta1: MSeedMetadata): boolean {
+    if(meta0.network != meta1.network)
+        return false
+    if(meta0.station != meta1.station)
+        return false
+    if(meta0.location != meta1.location)
+        return false
+    if(meta0.channel != meta1.channel)
+        return false
+    if(meta0.samplerate != meta1.samplerate)
+        return false
+    return true
 }
 
 
@@ -357,5 +434,4 @@ export function is_mseed(view:DataView): boolean {
 export function combine_mseed_codes(meta: MSeedMetadata): string {
     return `${meta.network}.${meta.station}.${meta.location}.${meta.channel}`
 }
-
 
