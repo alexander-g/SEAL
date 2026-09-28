@@ -162,6 +162,60 @@ Deno.test('mseed-reading', async (t:Deno.TestContext) => {
     })
 })
 
+Deno.test('mseed-reading-segment', async (t:Deno.TestContext) => {
+    const tremorwasm = await initialize()
+    const mseeddata = Deno.readFileSync(MSEED_FILES[3]!)
+    const file:File = new File([mseeddata], 'dual-trace.mseed')
+
+    const metadata:MSeedMetadata[]|Error = await read_mseed_metadata(file)
+    assert(!(metadata instanceof Error))
+    assert(metadata.length == 2)
+
+    const first_segment:MSeedMetadata = metadata[0]!
+    const second_segment:MSeedMetadata = metadata[1]!
+
+    await t.step('read_segment_data expected-use', async () => {
+        const result:Float32Array|Error = await tremorwasm.read_segment_data(
+            file,
+            {
+                code: 'XX.SYN..SIN',
+                starttime: first_segment.starttime,
+            }
+        )
+        assert(!(result instanceof Error))
+        assert(result.length > 0)
+
+        
+        const segment_meta = await tremorwasm.read_segment_metadata(file, {
+            code: 'XX.SYN..SIN',
+            starttime: first_segment.starttime,
+        })
+        assert(!(segment_meta instanceof Error))
+        assert(segment_meta.nsamples == result.length)
+        assert(segment_meta.start.toISOString().startsWith('2026-04-23'))
+
+
+        const segment_meta2 = await tremorwasm.read_segment_metadata(file, {
+            code: 'XX.SYN..SIN',
+            starttime: second_segment.starttime,
+        })
+        assert(!(segment_meta2 instanceof Error))
+        assert(segment_meta2.code == 'XX.SYN..SIN')
+        assert(segment_meta2.start.toISOString().startsWith('2026-04-27'))
+    })
+
+    await t.step('read_segment_data failure-case', async () => {
+        const result:Float32Array|Error = await tremorwasm.read_segment_data(
+            file,
+            {
+                code: 'ZZ.UNKNOWN..BHZ',
+                starttime: first_segment.starttime,
+            }
+        )
+        assert(result instanceof Error)
+    })
+})
+
 Deno.test('mseed-writing', async (t:Deno.TestContext) => {
     const tremorwasm = await initialize()
     const starttime:Date = new Date(Date.UTC(2020, 0, 1))
