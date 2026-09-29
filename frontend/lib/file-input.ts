@@ -191,10 +191,12 @@ export async function read_mseed_slice_across_files(
 
         for(const mseed of candidates) {
             const data: Float32Array|Error =
-                await tremorwasm.read_segment_data(mseed.file, {
-                    code: normalized_code,
-                    starttime: mseed.meta.starttime,
-                })
+                await tremorwasm.read_segment_data(
+                    mseed.file, {
+                        code:      normalized_code,
+                        starttime: mseed.meta.starttime,
+                    }
+                )
             if(data instanceof Error)
                 return data
 
