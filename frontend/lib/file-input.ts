@@ -1,7 +1,11 @@
 import { parse_stationxml_file, type Station } from './station-xml.ts'
 import { parse_quakeml_file, type QuakeEvent } from './quakeml.ts'
 import type { InferenceEvent } from "../ui/mseed-heatmap.tsx"
-import { MSeedMetadata, read_mseed_metadata } from "./mseed-parsing.ts"
+import {
+    combine_mseed_codes,
+    MSeedMetadata,
+    read_mseed_metadata,
+} from './mseed-parsing.ts'
 
 import { 
     initialize as tremorwasm_initialize, 
@@ -33,14 +37,12 @@ export type ProgressCallback = (processed: number, total: number) => void
 export 
 async function parse_file(file: File): Promise<FileResult|Error> {
     // Try MSEED
-    // NOTE: should be first, much faster that way
     const metadata:Error|MSeedMetadata[] = await read_mseed_metadata(file)
     if(!(metadata instanceof Error)) {
-        const meta:MSeedMetadata = find_longest_trace_metadata(metadata)
         return {
             type: 'mseed',
             filename: file.name,
-            meta
+            meta: metadata
         }
     }
 
@@ -107,10 +109,7 @@ export async function process_dropped_files(
                 console.warn('File processing error:', result)
             else {
                 if (result.type === 'mseed')
-                    all_meta.push({
-                        file: file,
-                        meta: result.meta,
-                    })
+                    all_meta.push( ...result.meta.map( (meta) => ({file, meta}) ) )
                 else if (result.type === 'station')
                     all_stations.push(...result.stations)
                 else if (result.type === 'inference')
@@ -138,101 +137,95 @@ export async function process_dropped_files(
 
 /** Read a single time slice across multiple MSEED files. */
 export async function read_mseed_slice_across_files(
-    mseeds:              MSEED_FileAndMeta[],
-    selected_file_index: number,
-    slice_indices:       [number, number],
+    mseeds:            MSEED_FileAndMeta[],
+    code:              string,
+    slice_start_time:  Date,
+    slice_end_time:    Date,
 ): Promise<Float32Array|Error> {
     try {
-        const selected_mseed: MSEED_FileAndMeta|undefined =
-            mseeds[selected_file_index]
-        if(selected_mseed == undefined)
-            return new Error(`Missing mseed file at ${selected_file_index}`)
+        const normalized_code: string = code.trim()
+        if(normalized_code.length == 0)
+            return new Error('code must be non-empty')
 
-        const slice_start_index: number = slice_indices[0]
-        const slice_end_index: number = slice_indices[1]
-        if(slice_start_index < 0)
-            return new Error('slice_start_index must be >= 0')
-        if(slice_end_index <= slice_start_index)
-            return new Error('slice_end_index must be > slice_start_index')
+        const slice_start_ms: number = slice_start_time.getTime()
+        const slice_end_ms: number = slice_end_time.getTime()
+        if(slice_end_ms <= slice_start_ms)
+            return new Error('slice_end_time must be > slice_start_time')
 
-        const base_meta: MSeedMetadata = selected_mseed.meta
-        const samplerate: number = base_meta.samplerate
-        const output_length: number = Math.floor(slice_end_index)
+        const matching_mseeds: MSEED_FileAndMeta[] = mseeds.filter((mseed) =>
+            combine_mseed_codes(mseed.meta) == normalized_code
+        )
+        if(matching_mseeds.length == 0)
+            return new Error(`Missing mseed file for code ${normalized_code}`)
+
+        const samplerate: number = matching_mseeds[0]!.meta.samplerate
+        const output_length: number = Math.floor(
+            ((slice_end_ms - slice_start_ms) / 1000) * samplerate
+        )
         if(output_length <= 0)
-            return new Error('slice_end_index must be > 0')
-
-        const base_start_ms: number = base_meta.starttime.getTime()
-        const slice_end_ms: number = base_start_ms
-            + (output_length / samplerate) * 1000
+            return new Error('Requested output length must be > 0')
 
         const output: Float32Array = new Float32Array(output_length)
         const filled: Uint8Array = new Uint8Array(output_length)
 
         const candidates: MSEED_FileAndMeta[] = []
-        let selected_candidate: MSEED_FileAndMeta|undefined = undefined
-        for(const mseed of mseeds) {
+        for(const mseed of matching_mseeds) {
             const meta: MSeedMetadata = mseed.meta
-            if(!matching_station_codes(meta, base_meta))
-                continue
             if(meta.samplerate != samplerate)
                 continue
 
             const meta_start_ms: number = meta.starttime.getTime()
             const meta_end_ms: number = meta.endtime.getTime()
-            if(meta_end_ms <= base_start_ms)
+            if(meta_end_ms <= slice_start_ms)
                 continue
             if(meta_start_ms >= slice_end_ms)
                 continue
             candidates.push(mseed)
-            if(mseed === selected_mseed)
-                selected_candidate = mseed
         }
+        if(candidates.length == 0)
+            return new Error('No overlapping mseed segments for requested time')
 
         candidates.sort((a: MSEED_FileAndMeta, b: MSEED_FileAndMeta) =>
             a.meta.starttime.getTime() - b.meta.starttime.getTime()
         )
 
-        const ordered_candidates: MSEED_FileAndMeta[] = []
-        if(selected_candidate)
-            ordered_candidates.push(selected_candidate)
-        for(const candidate of candidates) {
-            if(candidate === selected_candidate)
-                continue
-            ordered_candidates.push(candidate)
-        }
-
-        for(const mseed of ordered_candidates) {
+        for(const mseed of candidates) {
             const data: Float32Array|Error =
-                await tremorwasm.read_data(mseed.file)
+                await tremorwasm.read_segment_data(mseed.file, {
+                    code: normalized_code,
+                    starttime: mseed.meta.starttime,
+                })
             if(data instanceof Error)
                 return data
 
             const meta_start_ms: number = mseed.meta.starttime.getTime()
-            const offset_seconds: number = (meta_start_ms - base_start_ms) / 1000
+            const offset_seconds: number =
+                (meta_start_ms - slice_start_ms) / 1000
             const output_start_index: number =
                 Math.round(offset_seconds * samplerate)
 
             if(output_start_index >= output_length)
                 break
-            if(output_start_index < 0)
-                continue
-
-            const available_samples: number = output_length - output_start_index
-            const copy_samples: number = Math.min(data.length, available_samples)
+            const source_start_index: number = Math.max(0, -output_start_index)
+            const clamped_output_start: number = Math.max(0, output_start_index)
+            const available_samples: number =
+                output_length - clamped_output_start
+            const copy_samples: number = Math.min(
+                data.length - source_start_index,
+                available_samples,
+            )
             if(copy_samples <= 0)
                 continue
 
             for(let i:number = 0; i < copy_samples; i++) {
-                const out_index: number = output_start_index + i
+                const out_index: number = clamped_output_start + i
                 if(filled[out_index] == 1)
                     continue
-                output[out_index] = data[i] ?? data[data.length-1]!
+                const source_index: number = source_start_index + i
+                output[out_index] = data[source_index] ?? data[data.length - 1]!
                 filled[out_index] = 1
             }
         }
-
-        if(slice_start_index >= output_length)
-            return new Error('slice_start_index exceeds output length')
 
         return output
     } catch(e) {
@@ -273,20 +266,6 @@ function parse_date_UTC_if_no_TZ(s:string): Date {
   }
 
 
-/** Check network, station, channel match. */
-function matching_station_codes(
-    meta0: MSeedMetadata,
-    meta1: MSeedMetadata,
-): boolean {
-    if(meta0.network != meta1.network)
-        return false
-    if(meta0.station != meta1.station)
-        return false
-    if(meta0.channel != meta1.channel)
-        return false
-    return true
-}
-
 export function parse_station_code_from_filename(input: string): string|null {
     input = input.replace(/\.(txt)$/i, '')
     input = input.replace(/\.(csv)$/i, '')
@@ -314,7 +293,7 @@ export function find_iso_time(input: string): string|null {
 
 type FileResult = {
     type:    'mseed'
-    meta:     MSeedMetadata
+    meta:     MSeedMetadata[]
     filename: string
 } 
 | {
@@ -332,22 +311,4 @@ type FileResult = {
 | {
     type:    'unknown'
     filename: string
-}
-
-function find_longest_trace_metadata(metadata: MSeedMetadata[]): MSeedMetadata {
-    let longest_meta:MSeedMetadata = metadata[0]!
-    let longest_duration_ms:number =
-        longest_meta.endtime.getTime() - longest_meta.starttime.getTime()
-
-    for(let index:number = 1; index < metadata.length; index++) {
-        const current_meta:MSeedMetadata = metadata[index]!
-        const current_duration_ms:number =
-            current_meta.endtime.getTime() - current_meta.starttime.getTime()
-        if(current_duration_ms > longest_duration_ms) {
-            longest_meta = current_meta
-            longest_duration_ms = current_duration_ms
-        }
-    }
-
-    return longest_meta
 }

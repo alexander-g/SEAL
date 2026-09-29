@@ -40,40 +40,63 @@ async function read_mseed_metadata(blob: Blob): Promise<MSeedMetadata[]|NotMSEED
             return new Error('MSEED file has no complete records.')
 
         const records:MSeedMetadata[] = []
-        for(let record_index:number = 0; record_index < record_count; record_index++) {
-            const record_offset:number = record_index * recordlength
-            const recordbuf:DataView = await read_slice(blob, record_offset, 64)
-            if(recordbuf.byteLength < 48)
-                continue
-            if(!is_mseed(recordbuf))
-                continue
+        const target_chunk_bytes:number = 4 * 1024 * 1024
+        const chunk_records:number = 
+            Math.max(1, Math.floor(target_chunk_bytes / recordlength))
 
-            const parsed_header:MSEED_Header = 
-                parse_fixed_mseed_header(recordbuf, little_endian)
-            // sanity check
-            if(parsed_header.starttime.getUTCFullYear() > 2100)
-                return new Error('Parsed year is far in the future.')
-            if(parsed_header.samplerate <= 0)
-                return new Error('Parsed samplerate must be > 0.')
-
-            const duration_seconds:number =
-                parsed_header.n_samples / parsed_header.samplerate
-            const record_endtime:Date = new Date(
-                parsed_header.starttime.getTime() + duration_seconds * 1000
+        for(
+            let chunk_start_index:number = 0;
+            chunk_start_index < record_count;
+            chunk_start_index += chunk_records
+        ) {
+            const records_in_chunk:number = Math.min(
+                chunk_records,
+                record_count - chunk_start_index
             )
-            if(record_endtime.getUTCFullYear() > 2100)
-                return new Error('Parsed year is far in the future.')
+            const chunk_offset:number = chunk_start_index * recordlength
+            const chunk_bytes:number = records_in_chunk * recordlength
+            const chunk:DataView = await read_slice(blob, chunk_offset, chunk_bytes)
 
-            const codes:MSEED_Codes = parse_codes(recordbuf)
-            records.push({
-                starttime:  parsed_header.starttime,
-                endtime:    record_endtime,
-                samplerate: parsed_header.samplerate,
-                network:    codes.network,
-                station:    codes.station,
-                location:   codes.location,
-                channel:    codes.channel,
-            })
+            for(let chunk_record:number = 0; chunk_record < records_in_chunk; chunk_record++) {
+                const local_offset:number = chunk_record * recordlength
+                if(local_offset + 48 > chunk.byteLength)
+                    continue
+
+                const recordbuf:DataView = new DataView(
+                    chunk.buffer,
+                    chunk.byteOffset + local_offset,
+                    Math.min(64, chunk.byteLength - local_offset)
+                )
+                if(!is_mseed(recordbuf))
+                    continue
+
+                const parsed_header:MSEED_Header =
+                    parse_fixed_mseed_header(recordbuf, little_endian)
+                // sanity check
+                if(parsed_header.starttime.getUTCFullYear() > 2100)
+                    return new Error('Parsed year is far in the future.')
+                if(parsed_header.samplerate <= 0)
+                    return new Error('Parsed samplerate must be > 0.')
+
+                const duration_seconds:number =
+                    parsed_header.n_samples / parsed_header.samplerate
+                const record_endtime:Date = new Date(
+                    parsed_header.starttime.getTime() + duration_seconds * 1000
+                )
+                if(record_endtime.getUTCFullYear() > 2100)
+                    return new Error('Parsed year is far in the future.')
+
+                const codes:MSEED_Codes = parse_codes(recordbuf)
+                records.push({
+                    starttime:  parsed_header.starttime,
+                    endtime:    record_endtime,
+                    samplerate: parsed_header.samplerate,
+                    network:    codes.network,
+                    station:    codes.station,
+                    location:   codes.location,
+                    channel:    codes.channel,
+                })
+            }
         }
 
         if(records.length == 0)
@@ -434,4 +457,3 @@ export function is_mseed(view:DataView): boolean {
 export function combine_mseed_codes(meta: MSeedMetadata): string {
     return `${meta.network}.${meta.station}.${meta.location}.${meta.channel}`
 }
-

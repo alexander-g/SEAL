@@ -378,13 +378,21 @@ export class MainContent extends preact.Component<MainContentProps> {
                     }
                 )
             
+            const t0:Date = new Date(
+                mseed.meta.starttime.getTime() 
+                + (selectedslice.start_index / fs) * 1000
+            )
             // re-use previous item's data or read from files
             const data: Float32Array|Error =
                 previous?.data
                 ?? await read_mseed_slice_across_files(
                     mseeds,
-                    selectedslice.file_index,
-                    [selectedslice.start_index, slice_end_index],
+                    code,
+                    t0,
+                    new Date(
+                        mseed.meta.starttime.getTime()
+                        + (slice_end_index / fs) * 1000
+                    ),
                 )
             if(data instanceof Error){
                 console.error(data as Error)
@@ -397,11 +405,11 @@ export class MainContent extends preact.Component<MainContentProps> {
             
             new_signal_plot_data_list.push({
                 data,
-                start_time:        mseed.meta.starttime,
+                start_time:        t0,
                 sample_rate_hz:    mseed.meta.samplerate,
                 code:              code,
                 response:          channel?.response,
-                slice_start_index: selectedslice.start_index,
+                slice_start_index: 0,
             })
 
             // for now only signal plots with multiple signals
@@ -410,10 +418,10 @@ export class MainContent extends preact.Component<MainContentProps> {
 
             this.$spectrogram_plot_data.value = {
                 signal:            data,
-                start_time:        mseed.meta.starttime,
+                start_time:        t0,
                 fs:                mseed.meta.samplerate,
                 code:              code,
-                slice_start_index: selectedslice.start_index,
+                slice_start_index: 0,
             }
             // this.$modulation_power_spectrum_data.value = {
             //     signal:        data,
