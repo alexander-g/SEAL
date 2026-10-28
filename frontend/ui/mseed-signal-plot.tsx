@@ -86,32 +86,30 @@ export class MSEED_SignalPlot extends preact.Component<{
         const plot_data: MSEED_SignalPlotData[]|null = this.props.$plot_data.value
         const f_min: number = this.settings.$bandpass_fmin.value
         const f_max: number = this.settings.$bandpass_fmax.value
-        const slice_length: number = this.settings.$slice_length.value
         const use_common_y_domain: boolean =
             this.settings.$use_common_y_domain.value
 
         if(plot_data.length == 0)
             return []
 
-        const processed_data:(SignalPlotData|null)[] = []
+        const processed_data:(SignalPlotDataWithCacheKey|null)[] = []
         for(const i in plot_data) {
             processed_data.push(
                 convert_mseed_data_to_signal_plot(
                     plot_data[i]!, 
-                    slice_length, 
                     f_min, 
                     f_max,
-                    /* add_title  = */ (plot_data.length <= 1),
-                    /* add_x_axis = */ (Number(i)+1 == plot_data.length),
+                    /* add_title     = */ (plot_data.length <= 1),
+                    /* add_x_axis    = */ (Number(i)+1 == plot_data.length),
                     /* code_on_yaxis = */ (plot_data.length > 1),
+                    /* previous      = */ this._processed_data_cache,
                 )
             )
         }
 
+        const valid_data: SignalPlotDataWithCacheKey[] = processed_data
+            .filter((item): item is SignalPlotDataWithCacheKey => item != null)
         if(use_common_y_domain) {
-            const valid_data: SignalPlotData[] = processed_data
-                .filter((item): item is SignalPlotData => item != null)
-
             if(valid_data.length > 1) {
                 const y_domain: [number, number] | Error =
                     compute_common_signal_y_domain(
@@ -126,8 +124,12 @@ export class MSEED_SignalPlot extends preact.Component<{
             }
         }
 
+        this._processed_data_cache = valid_data
         return processed_data
     })
+
+    _processed_data_cache: SignalPlotDataWithCacheKey[] = []
+
 
     /** Create or return a cached signals.computed() to a specified 
      *  index within `$processed_plot_data` */
@@ -311,26 +313,37 @@ export class MSEED_SignalPlot extends preact.Component<{
 }
 
 
+type SignalPlotDataWithCacheKey = SignalPlotData & {_key:string}
+
 function convert_mseed_data_to_signal_plot(
     item:         MSEED_SignalPlotData,
-    slice_length: number,
     f_min:        number,
     f_max:        number,
     add_title:    boolean = true,
     add_xaxis:    boolean = true,
     code_on_yaxis:boolean = false,
-): SignalPlotData|null {
-    const fs: number = item.sample_rate_hz
+    previous?:    SignalPlotDataWithCacheKey[],
+): SignalPlotDataWithCacheKey|null {
+        const fs: number = item.sample_rate_hz
         let data: Float32Array = item.data
         const i0:number = item.slice_start_index
-        const i1:number = i0 + slice_length * fs
+        const i1:number = i0 + data.length
 
         data = data.slice(i0, i1)
         if(data.length < 2)
             return null
-        
-        if(item.response != undefined)
-            data = remove_sensitivity(data, item.response)
+
+
+        const cache_key:string = _construct_cache_key(item, f_min, f_max)
+        const prev:SignalPlotData|null = 
+            _find_in_previous(previous ?? [], cache_key)
+        if(prev != null) 
+            data = prev.data
+        else {
+            if(item.response != undefined)
+                data = remove_sensitivity(data, item.response)
+            data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
+        }
         
         let y_axis_label:string|undefined = undefined
         if(code_on_yaxis)
@@ -343,8 +356,6 @@ function convert_mseed_data_to_signal_plot(
             compute_time_domain(item.start_time, i0, i1, fs)
         if(x_domain instanceof Error)
             return null;
-
-        data = signalprocessing.bandpass_filter_fir(data, fs, f_min, f_max)
 
         const filter_str:string = format_filter(f_min, f_max, fs)
         const title: string|undefined = 
@@ -362,8 +373,30 @@ function convert_mseed_data_to_signal_plot(
             x_axis_label, 
             y_axis_label, 
             title,
+            _key: cache_key
         }
 }
+
+
+function _find_in_previous(
+    previous: SignalPlotDataWithCacheKey[], 
+    key:      string
+): SignalPlotDataWithCacheKey|null {
+    for(const prev of previous)
+        if(prev._key == key)
+            return prev
+    //else
+    return null
+}
+
+function _construct_cache_key(
+    item:  MSEED_SignalPlotData, 
+    f_min: number, 
+    f_max: number
+): string {
+    return `${item.code}-${item.start_time}-${item.data.length}-${f_min}-${f_max}`
+}
+
 
 
 // re-export
