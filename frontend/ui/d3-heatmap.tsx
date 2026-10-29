@@ -64,7 +64,7 @@ export class D3Heatmap extends preact.Component<{
 
     $title?:       Readonly<Signal<string>>,
     x_axis_label?: string,
-    y_axis_label?: string,
+    y_axis_label?: string|Readonly<Signal<string>>,
     x_axis_label_formatter?: (value:number) => string,
     y_axis_label_formatter?: (index:number, y_axis:string[]) => string,
 
@@ -89,7 +89,7 @@ export class D3Heatmap extends preact.Component<{
     svgimage_ref:  preact.RefObject<SVGImageElement> = preact.createRef();
     resize_observer: ResizeObserver|null = null
 
-    private margin: PlotMargin = { top: 24, right: 12, bottom: 40, left: 60 }
+    private margin: PlotMargin = { top: 24, right: 12, bottom: 18, left: 60 }
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
     private $hover_position: Signal<HoverPosition|null> = new Signal(null)
     private heatmap_image_url:string|null = null

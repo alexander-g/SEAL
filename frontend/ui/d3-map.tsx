@@ -56,7 +56,12 @@ export class D3Map extends preact.Component<D3MapProps> {
     static readonly scale_max:number = 1 << 22
     static readonly fit_padding_ratio:number = 0.85
 
-    svg_ref: preact.RefObject<SVGSVGElement> = preact.createRef();
+    private static next_clip_id:number = 0
+    private clip_path_id:string = `map-clip-${D3Map.next_clip_id++}`
+
+    svg_ref:   preact.RefObject<SVGSVGElement> = preact.createRef();
+    xaxis_ref: preact.RefObject<SVGGElement>   = preact.createRef();
+    yaxis_ref: preact.RefObject<SVGGElement>   = preact.createRef();
     container_ref:preact.RefObject<HTMLDivElement> = preact.createRef()
 
     zoom_behavior: d3.ZoomBehavior<SVGSVGElement, unknown>|null = null
@@ -65,6 +70,9 @@ export class D3Map extends preact.Component<D3MapProps> {
 
     /** SVG map elements */
     $svg_tiles:Signal<JSX.Element[]> = new Signal([])
+
+    /** SVG coordinate grid lines */
+    $svg_grid_lines:Signal<JSX.Element[]> = new Signal([])
 
     /** SVG bubbles */
     $svg_annotations:Signal<JSX.Element[]> = new Signal([])
@@ -84,6 +92,19 @@ export class D3Map extends preact.Component<D3MapProps> {
     /** Current size of the top <div>. Updated via ResizeObserver. */
     $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
 
+    $dimensions: Readonly<Signal<MapPlotDimensions>> = signals.computed(() =>
+        compute_map_dimensions(this.$container_size.value)
+    )
+    $plot_width: Readonly<Signal<number>> = signals.computed(() =>
+        this.$dimensions.value.plot_width
+    )
+    $plot_height: Readonly<Signal<number>> = signals.computed(() =>
+        this.$dimensions.value.plot_height
+    )
+    $x_axis_transform: Readonly<Signal<string>> = signals.computed(() =>
+        `translate(0,${this.$plot_height.value})`
+    )
+
 
     render(): JSX.Element {
         const { width, height } = this.$container_size.value;
@@ -96,18 +117,49 @@ export class D3Map extends preact.Component<D3MapProps> {
         >
             <svg
                 ref = {this.svg_ref} 
-                // TODO: viewbox =
-
                 width  = {width}
                 height = {height}
-                // debug
-                style  = {{backgroundColor:"rgb(224,230,224)"}}
             >
-                <g class="tiles" pointer-events="none">
-                    { this.$svg_tiles }
-                </g>
-                <g class="annotations">
-                    { this.$svg_annotations }
+                <defs>
+                    <clipPath id={this.clip_path_id}>
+                        <rect
+                            x      = "0"
+                            y      = "0"
+                            width  = {this.$plot_width}
+                            height = {this.$plot_height}
+                        />
+                    </clipPath>
+                </defs>
+
+                <g transform={`translate(${MAP_PLOT_MARGIN.left},${MAP_PLOT_MARGIN.top})`}>
+                    <g clip-path={`url(#${this.clip_path_id})`}>
+                        <rect
+                            x      = "0"
+                            y      = "0"
+                            width  = {this.$plot_width}
+                            height = {this.$plot_height}
+                            fill   = "rgb(224,230,224)"
+                        />
+                        <g class="tiles" pointer-events="none">
+                            { this.$svg_tiles }
+                        </g>
+                        <g class="grid-lines" pointer-events="none">
+                            { this.$svg_grid_lines }
+                        </g>
+                        <g class="annotations">
+                            { this.$svg_annotations }
+                        </g>
+                    </g>
+
+                    <g
+                        class     = "axis x-axis"
+                        transform = {this.$x_axis_transform}
+                        ref       = {this.xaxis_ref}
+                    />
+                    <g
+                        class = "axis y-axis"
+                        ref   = {this.yaxis_ref}
+                    />
                 </g>
             </svg>
 
@@ -124,16 +176,17 @@ export class D3Map extends preact.Component<D3MapProps> {
     resize_observer: ResizeObserver|null = null
 
     override componentDidMount(): void {
-        const { width, height } = this.$container_size.value;
+        const { plot_width, plot_height } = this.$dimensions.value;
 
         const zoom:d3.ZoomBehavior<SVGSVGElement, unknown> = 
             d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([D3Map.scale_min, D3Map.scale_max])
-            //.extent([[0, 0], [width, height]])                         // TODO: what if width/height changes?
-            .on("zoom", (event) => this.on_zoom(event.transform));     // TODO: use a $signal instead
+            .on("zoom", (event) => this.on_zoom(event.transform));
         
         const transform:d3.ZoomTransform = 
-            d3.zoomIdentity.translate(width >> 1, height >> 1).scale(1 << 12)
+            d3.zoomIdentity
+            .translate(plot_width >> 1, plot_height >> 1)
+            .scale(1 << 12)
 
         this.zoom_behavior = zoom
         this.current_transform = transform
@@ -220,19 +273,19 @@ export class D3Map extends preact.Component<D3MapProps> {
 
         let next_scale:number = this.current_transform.k
 
-        const { width, height } = this.$container_size.value;
+        const { plot_width, plot_height } = this.$dimensions.value;
 
         if(span_x > 0 && span_y > 0){
-            const usable_width:number = width * D3Map.fit_padding_ratio
-            const usable_height:number = height * D3Map.fit_padding_ratio
+            const usable_width:number = plot_width * D3Map.fit_padding_ratio
+            const usable_height:number = plot_height * D3Map.fit_padding_ratio
             const fit_scale_x:number = usable_width / span_x
             const fit_scale_y:number = usable_height / span_y
             next_scale = Math.min(fit_scale_x, fit_scale_y)
         } else if(span_x > 0) {
-            const usable_width:number = width * D3Map.fit_padding_ratio
+            const usable_width:number = plot_width * D3Map.fit_padding_ratio
             next_scale = usable_width / span_x
         } else if(span_y > 0) {
-            const usable_height:number = height * D3Map.fit_padding_ratio
+            const usable_height:number = plot_height * D3Map.fit_padding_ratio
             next_scale = usable_height / span_y
         }
 
@@ -240,8 +293,8 @@ export class D3Map extends preact.Component<D3MapProps> {
 
         const transform:d3.ZoomTransform = d3.zoomIdentity
             .translate(
-                (width / 2) - (center_x * next_scale), 
-                (height / 2) - (center_y * next_scale)
+                (plot_width / 2) - (center_x * next_scale), 
+                (plot_height / 2) - (center_y * next_scale)
             )
             .scale(next_scale)
 
@@ -268,10 +321,91 @@ export class D3Map extends preact.Component<D3MapProps> {
     #_2 = signals.effect(() => this.on_highlighted_markers_changed())
 
 
+    update_axes(transform:d3.ZoomTransform): void {
+        if(this.xaxis_ref.current == null || this.yaxis_ref.current == null)
+            return
+
+        const { plot_width, plot_height } = this.$dimensions.value
+        const bounds =
+            compute_visible_coordinate_bounds(transform, plot_width, plot_height)
+        if(bounds instanceof Error)
+            return
+
+        const projection:d3.GeoProjection = create_mercator_projection(transform)
+
+        const x_scale:d3.ScaleLinear<number, number> = d3.scaleLinear()
+            .domain(bounds.longitude_domain)
+            .range([0, plot_width])
+        const longitude_ticks:number[] = x_scale.ticks(4)
+
+        const x_axis:d3.Axis<d3.NumberValue> = d3.axisBottom(x_scale)
+            .tickValues(longitude_ticks)
+            .tickFormat((value:d3.NumberValue) => {
+                const label:string|Error =
+                    format_coordinate_axis_label(Number(value), 'longitude')
+                return label instanceof Error ? '' : label
+            })
+
+        const latitude_ticks:number[] =
+            d3.ticks(bounds.latitude_domain[0], bounds.latitude_domain[1], 4)
+        const y_scale:d3.ScaleLinear<number, number> = d3.scaleLinear()
+            .domain(bounds.latitude_domain)
+            .range([plot_height, 0])
+
+        if(latitude_ticks.length >= 2) {
+            const tick_positions:number[] = latitude_ticks.map((lat:number) => {
+                const projected:[number, number]|null = projection([0, lat])
+                return projected != null ? projected[1] : y_scale(lat)
+            })
+            y_scale.domain(latitude_ticks).range(tick_positions)
+        }
+
+        const y_axis:d3.Axis<d3.NumberValue> = d3.axisLeft(y_scale)
+            .tickValues(latitude_ticks)
+            .tickFormat((value:d3.NumberValue) => {
+                const label:string|Error =
+                    format_coordinate_axis_label(Number(value), 'latitude')
+                return label instanceof Error ? '' : label
+            })
+
+        d3.select(this.xaxis_ref.current).call(x_axis)
+        d3.select(this.yaxis_ref.current).call(y_axis)
+
+        const grid_lines:JSX.Element[] = []
+        for(const lon of longitude_ticks) {
+            const x:number = x_scale(lon)
+            grid_lines.push(
+                <line
+                    key            = {`grid-x-${lon}`}
+                    x1             = {x}
+                    y1             = {0}
+                    x2             = {x}
+                    y2             = {plot_height}
+                    stroke         = 'black'
+                    stroke-opacity = {0.15}
+                />
+            )
+        }
+        for(const lat of latitude_ticks) {
+            const y:number = y_scale(lat)
+            grid_lines.push(
+                <line
+                    key            = {`grid-y-${lat}`}
+                    x1             = {0}
+                    y1             = {y}
+                    x2             = {plot_width}
+                    y2             = {y}
+                    stroke         = 'black'
+                    stroke-opacity = {0.15}
+                />
+            )
+        }
+        this.$svg_grid_lines.value = grid_lines
+    }
+
+
     update_annotations(transform:d3.ZoomTransform): void {
-        const projection:d3.GeoProjection = d3.geoMercator()
-            .scale(transform.k / (2 * Math.PI))
-            .translate([transform.x, transform.y])
+        const projection:d3.GeoProjection = create_mercator_projection(transform)
 
         const highlighted_markers:number[] = this.props.$highlighted_markers?.value ?? []
         const highlighted_indices:Set<number> = new Set(highlighted_markers)
@@ -353,9 +487,7 @@ export class D3Map extends preact.Component<D3MapProps> {
     }
 
     update_marker_tooltips(transform:d3.ZoomTransform): void {
-        const projection:d3.GeoProjection = d3.geoMercator()
-            .scale(transform.k / (2 * Math.PI))
-            .translate([transform.x, transform.y])
+        const projection:d3.GeoProjection = create_mercator_projection(transform)
 
         const highlighted_markers:number[] = this.props.$highlighted_markers?.value ?? []
         const tooltips:JSX.Element[] = []
@@ -384,8 +516,8 @@ export class D3Map extends preact.Component<D3MapProps> {
                 (label.length * 7) + (tooltip_padding * 2),
                 tooltip_max_width,
             )
-            const base_left:number = projected[0] + tooltip_offset
-            const base_top:number = projected[1] + tooltip_offset
+            const base_left:number = projected[0] + MAP_PLOT_MARGIN.left + tooltip_offset
+            const base_top:number = projected[1] + MAP_PLOT_MARGIN.top + tooltip_offset
             const clamped_left:number = Math.max(
                 tooltip_padding,
                 Math.min(
@@ -433,11 +565,11 @@ export class D3Map extends preact.Component<D3MapProps> {
 
     on_zoom(transform:d3.ZoomTransform): void {
         this.current_transform = transform
-        const { width, height } = this.$container_size.value;
+        const { plot_width, plot_height } = this.$dimensions.value;
 
         const tilelayout:d3tile.TileLayout = 
             d3tile.tile()
-            .extent([[0, 0], [width, height]])
+            .extent([[0, 0], [plot_width, plot_height]])
             .tileSize(512)
             .clampX(false);
 
@@ -475,6 +607,7 @@ export class D3Map extends preact.Component<D3MapProps> {
 
         this.update_annotations(transform)
         this.update_marker_tooltips(transform)
+        this.update_axes(transform)
     }
 
     /** Update container dimensions when parent size changes */
@@ -489,6 +622,7 @@ export class D3Map extends preact.Component<D3MapProps> {
             width: next_width,
             height: next_height,
         }
+        this.on_zoom(this.current_transform)
     }
 
     /** Called when the top <div> changes size */
@@ -508,6 +642,115 @@ type Size = {
     width: number,
     height:number,
 }
+
+type PlotMargin = {
+    top:    number,
+    right:  number,
+    bottom: number,
+    left:   number,
+}
+
+export type MapPlotDimensions = {
+    svg_width:   number,
+    svg_height:  number,
+    plot_width:  number,
+    plot_height: number,
+}
+
+export type CoordinateAxisDirection = 'latitude'|'longitude'
+
+const MAP_PLOT_MARGIN:PlotMargin = {
+    top:    2,
+    right:  2,
+    bottom: 20,
+    left:   46,
+}
+
+const MERCATOR_MAX_LATITUDE:number = 85.05112878
+
+/** Compute map SVG and inner plot dimensions given container size. */
+export function compute_map_dimensions(
+    container_size: Size,
+): MapPlotDimensions {
+    const svg_width:number = Math.max(container_size.width, 0)
+    const svg_height:number = Math.max(container_size.height, 0)
+    const plot_width:number = Math.max(
+        svg_width - MAP_PLOT_MARGIN.left - MAP_PLOT_MARGIN.right,
+        1,
+    )
+    const plot_height:number = Math.max(
+        svg_height - MAP_PLOT_MARGIN.top - MAP_PLOT_MARGIN.bottom,
+        1,
+    )
+    return {
+        svg_width,
+        svg_height,
+        plot_width,
+        plot_height,
+    }
+}
+
+/** Format decimal degrees into fixed degrees and 2-digit minutes with hemisphere, e.g. "1°30'N". */
+export function format_coordinate_axis_label(
+    degrees:   number,
+    direction: CoordinateAxisDirection,
+): string | Error {
+    if(!Number.isFinite(degrees))
+        return new Error('Coordinate value must be finite.')
+
+    const hemisphere:string = direction == 'latitude'
+        ? (degrees < 0 ? 'S' : 'N')
+        : (degrees < 0 ? 'W' : 'E')
+
+    const total_minutes:number = Math.round(Math.abs(degrees) * 60)
+    const deg:number = Math.floor(total_minutes / 60)
+    const min:number = total_minutes % 60
+    const min_str:string = String(min).padStart(2, '0')
+
+    return `${deg}°${min_str}'${hemisphere}`
+}
+
+/** Compute visible longitude and latitude bounds from a zoom transform and plot size. */
+export function compute_visible_coordinate_bounds(
+    transform:   d3.ZoomTransform,
+    plot_width:  number,
+    plot_height: number,
+): { longitude_domain: [number, number], latitude_domain: [number, number] } | Error {
+    if(plot_width <= 0 || plot_height <= 0 || transform.k <= 0)
+        return new Error('Invalid map plot dimensions or scale.')
+
+    const lon_min:number = ((0 - transform.x) / transform.k) * 360
+    const lon_max:number = ((plot_width - transform.x) / transform.k) * 360
+
+    const projection:d3.GeoProjection = create_mercator_projection(transform)
+    const top_left:[number, number]|null = projection.invert?.([0, 0]) ?? null
+    const bottom_right:[number, number]|null =
+        projection.invert?.([plot_width, plot_height]) ?? null
+    if(top_left == null || bottom_right == null)
+        return new Error('Failed to invert map projection.')
+
+    const lat_max:number = clamp_latitude(top_left[1])
+    const lat_min:number = clamp_latitude(bottom_right[1])
+
+    return {
+        longitude_domain: [lon_min, lon_max],
+        latitude_domain:  [lat_min, lat_max],
+    }
+}
+
+function create_mercator_projection(transform:d3.ZoomTransform): d3.GeoProjection {
+    return d3.geoMercator()
+        .scale(transform.k / (2 * Math.PI))
+        .translate([transform.x, transform.y])
+}
+
+function clamp_latitude(latitude:number): number {
+    return Math.max(
+        -MERCATOR_MAX_LATITUDE,
+        Math.min(MERCATOR_MAX_LATITUDE, latitude),
+    )
+}
+
 
 
 function url4tile(x:number, y:number, z:number): string {

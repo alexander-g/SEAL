@@ -424,7 +424,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 fs:                mseed.meta.samplerate,
                 code:              code,
                 slice_start_index: 0,
-            }
+            })
             // this.$modulation_power_spectrum_data.value = {
             //     signal:        data,
             //     slice_indices: [slice_start_index, resolved_slice_end_index],

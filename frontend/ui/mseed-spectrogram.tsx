@@ -182,22 +182,26 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
 
 
         const d3_inputs: typeof this.$d3_inputs['value'] = []
+        const new_cache: typeof this._spectrogram_cache = {}
         for(const item of data) {
             const i0:number = item.slice_start_index
             const i1:number = i0 + signal_length * item.fs
 
-            const spectrogram_output: SpectrogramOutput|Error = 
-                await create_spectrogram_for_visualization_parallelized(
-                    item.signal, 
-                    item.fs, 
-                    i0, 
-                    i1
-                )
+            const _cachekey:string = _construct_cache_key(item, i0, i1)
+            const spectrogram_output:SpectrogramOutput|Error
+                = this._spectrogram_cache[_cachekey]
+                ?? await create_spectrogram_for_visualization_parallelized(
+                        item.signal, 
+                        item.fs, 
+                        i0, 
+                        i1
+                    )
             if(spectrogram_output instanceof Error) {
                 console.log(`Could not create spectrogram`, spectrogram_output)
                 d3_inputs.push(null)
                 continue
             }
+            new_cache[_cachekey] = spectrogram_output
 
             const spectrogram_start_s:number =
                 item.start_time.getTime() / 1000
@@ -212,7 +216,6 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 .filter(
                     f => (f_min == null || f >= f_min) && (f_max == null || f <= f_max)
                 ).map(f => format_frequency_label(f))
-            const title: string = `${item.code} - Spectrogram`
 
             const spectrogram_heatmap_data: HeatmapDataItem[] = 
                 spectrogram_to_heatmap_items(spectrogram_output, f_min, f_max, scale)
@@ -225,10 +228,11 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 pixels: spectrogram_heatmap_data,
                 t_axis,
                 f_axis,
-                title,
+                code: item.code,
             })
         }
 
+        this._spectrogram_cache = new_cache
         this.$d3_inputs.value = d3_inputs
         return
     } finally {
@@ -236,16 +240,18 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     }
     }) as () => void)
 
+    _spectrogram_cache:Record<string,SpectrogramOutput> = {}
+
 
 
     /** List of JSX elements to be rendered */
     $d3_heatmaps: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
-        const d3_plots: JSX.Element[] = []
+        const d3_elements: JSX.Element[] = []
         for(const index in this.$d3_inputs.value) {
             const inputsignals:D3InputSignals = 
                 this.#get_individual_d3_input_as_signal(Number(index))
             
-            d3_plots.push(
+            d3_elements.push(
                 // NOTE: this <div> is needed to constrain the height
                 <div
                     key = {index}
@@ -259,8 +265,8 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                         $x_axis      = {inputsignals.t_axis}
                         $y_axis      = {inputsignals.f_axis}
                         on_click     = {() => {}}
-                        $title       = {inputsignals.title}
-                        y_axis_label = 'Frequency (Hz)'
+                        $title       = {inputsignals.$title}
+                        y_axis_label = {inputsignals.$y_axis_label}
                         enable_hover = {false}
                         enable_zoom  = {false}
                         downsample   = 'maxpool'
@@ -268,7 +274,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 </div>
             )
         }
-        return d3_plots
+        return d3_elements
     } )
 
     /** Create or return a cached signals.computed() to a specified 
@@ -288,15 +294,39 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             t_axis: signals.computed( () => {
                 return this.$d3_inputs.value[index]?.t_axis ?? []
             } ),
-            title: signals.computed( () => {
-                return this.$d3_inputs.value[index]?.title ?? 'Error'
+            code: signals.computed( () => {
+                return this.$d3_inputs.value[index]?.code ?? 'Error'
+            } ),
+            $title: signals.computed( () => {
+                const more_than_one_plot:boolean = 
+                    (this.$d3_inputs.value.length > 1)
+                if(more_than_one_plot)
+                    return ''
+                
+                const code:string|undefined = this.$d3_inputs.value[index]?.code
+                if(code == undefined)
+                    return 'Error'
+                // else
+                return `${code} - Spectrogram`
+            } ),
+            
+            $y_axis_label: signals.computed( () => {
+                const code:string|undefined = this.$d3_inputs.value[index]?.code
+                if(code == undefined)
+                    return ''
+                // else
+
+                const more_than_one_plot:boolean = 
+                    (this.$d3_inputs.value.length > 1)
+                if(more_than_one_plot)
+                    return code
+                return `Frequency (Hz)`
             } )
         }
         return this.#cached_individual_d3_input_signals[index]!
     }
 
-    #cached_individual_d3_input_signals: 
-    Record<number, D3InputSignals > = {}
+    #cached_individual_d3_input_signals:  Record<number, D3InputSignals > = {}
 
 
     $loading_or_updating: Readonly<Signal<boolean>> = signals.computed( () => {
@@ -309,12 +339,20 @@ type D3Input = {
     pixels: HeatmapDataItem[],
     f_axis: string[],
     t_axis: Date[],
-    title:  string,
+    code:  string,
 }
 
 type D3InputSignals = {
     [K in keyof D3Input]: Readonly< Signal<D3Input[K]> >;
-};
+} & {
+    $title:        Readonly<Signal<string>>
+    $y_axis_label: Readonly<Signal<string>>
+}
+
+
+function _construct_cache_key(item:MSEED_Data, i0:number, i1:number): string {
+    return `${item.code}-${item.start_time}-${item.signal.length}-${i0}-${i1}`
+}
 
 
 

@@ -446,7 +446,7 @@ export const initialize:Iinitialize = async () => {
     const reinitialize_wasm: () => Promise<TremorWASM_Module> = 
         async (): Promise<TremorWASM_Module> => {
             const wasm:TremorWASM_Module = await (
-                await import('./build-wasm2/wasm-mseed.js')
+                await import('./build-wasm/wasm-mseed.js')
             // deno-lint-ignore no-explicit-any
             ).default() as any;
 
