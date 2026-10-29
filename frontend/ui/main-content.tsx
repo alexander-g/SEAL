@@ -323,7 +323,7 @@ export class MainContent extends preact.Component<MainContentProps> {
     $signal_plot_data: Signal<MSEED_SignalPlotData[]> = new Signal([])
 
     /** Currently active data in the spectrogram plot */
-    $spectrogram_plot_data: Signal<MSEED_SpectrogramData | null> = new Signal(null)
+    $spectrogram_plot_data: Signal<MSEED_SpectrogramData[]> = new Signal([])
 
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
@@ -347,6 +347,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         const new_signal_plot_data_list: MSEED_SignalPlotData[] = []
         const old_signal_plot_data_list: MSEED_SignalPlotData[] = 
             this.$signal_plot_data.peek()
+        const new_spectrogram_data_list: MSEED_SpectrogramData[] = []
 
         try {
         for(const i in selected_slices) {
@@ -412,10 +413,12 @@ export class MainContent extends preact.Component<MainContentProps> {
             })
 
             // for now only signal plots with multiple signals
-            if( Number(i) > 0 )
-                continue
+            // TODO: multi-signal spectrograms etc
+            // if( Number(i) > 0 )
+                // continue
 
-            this.$spectrogram_plot_data.value = {
+
+            new_spectrogram_data_list.push({
                 signal:            data,
                 start_time:        slice_start_time,
                 fs:                mseed.meta.samplerate,
@@ -443,6 +446,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             this.$plots_loading.value = false
         }
         this.$signal_plot_data.value = new_signal_plot_data_list
+        this.$spectrogram_plot_data.value = new_spectrogram_data_list
 
         return
     })()
