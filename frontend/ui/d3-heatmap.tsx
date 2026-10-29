@@ -77,10 +77,6 @@ export class D3Heatmap extends preact.Component<{
 
     colormap?: 'viridis'|'magma',
 }> {
-    private static next_clip_id:number = 0
-    private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
-
-
     container_ref: preact.RefObject<HTMLDivElement> = preact.createRef();
     svg_ref:     preact.RefObject<SVGSVGElement> = preact.createRef();
     root_ref:    preact.RefObject<SVGGElement> = preact.createRef();
@@ -90,22 +86,23 @@ export class D3Heatmap extends preact.Component<{
     resize_observer: ResizeObserver|null = null
 
     private margin: PlotMargin = { top: 24, right: 12, bottom: 18, left: 60 }
+
+    /** Size of the top element, including heatmap image, margins, axes labels etc */
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
     private $hover_position: Signal<HoverPosition|null> = new Signal(null)
     private heatmap_image_url:string|null = null
 
-    private $dimensions:Readonly<Signal<SVGPlotDimensions>> = signals.computed(() =>
-        this.#get_dimensions()
-    )
+
+    /** Plot size converted to the SVG `viewbox=` attribute string */
     private $svg_viewbox:Readonly<Signal<string>> = signals.computed(() => {
-        const dimensions:SVGPlotDimensions = this.$dimensions.value
-        return `0 0 ${dimensions.svg_width} ${dimensions.svg_height}`
+        const container_size:Size = this.$container_size.value
+        return `0 0 ${container_size.width} ${container_size.height}`
     })
     private $plot_width:Readonly<Signal<number>> = signals.computed(() =>
-        this.$dimensions.value.plot_width
+        this.$plot_dimensions.value.width
     )
     private $plot_height:Readonly<Signal<number>> = signals.computed(() =>
-        this.$dimensions.value.plot_height
+        this.$plot_dimensions.value.height
     )
 
 
@@ -176,11 +173,11 @@ export class D3Heatmap extends preact.Component<{
                                 $cols        = {this.$n_cols}
                             />
 
-                            {this.#is_hover_enabled()
+                            {this.props.enable_hover
                                 ? <HoverMarker 
                                     $position   = {this.$hover_position} 
                                     $dataitems  = {this.props.$data}
-                                    $dimensions = {this.$dimensions}
+                                    $plotsize   = {this.$plot_dimensions}
                                     $rowscols   = {this.$rowscols}
                                 />
                                 : null
@@ -192,7 +189,7 @@ export class D3Heatmap extends preact.Component<{
 
 
                     <Axes 
-                        $dimensions     = {this.$dimensions}
+                        plot_size     = {this.$plot_dimensions}
                         $rowscols       = {this.$rowscols}
                         $x_axis         = {this.props.$x_axis}
                         $y_axis         = {this.props.$y_axis}
@@ -214,7 +211,7 @@ export class D3Heatmap extends preact.Component<{
                         text         = {this.props.y_axis_label}
                         $plot_height = {this.$plot_height}
                     />
-                    {this.#is_hover_enabled()
+                    {this.props.enable_hover
                         ? <HoverOverlay $position = {this.$hover_position} />
                         : null
                     }
@@ -261,7 +258,7 @@ export class D3Heatmap extends preact.Component<{
     )
 
     override componentDidMount(): void {
-        if(this.#is_zoom_enabled()) {
+        if( this.props.enable_zoom ) {
             d3.select(this.svg_ref.current!)
                 .call(this.zoom)
                 // no zoom on doubleclick
@@ -288,13 +285,11 @@ export class D3Heatmap extends preact.Component<{
     /** D3 ZoomTransform converted to a CSS transform string */
     private $transform_str:Readonly<Signal<string>> = signals.computed( () => {
         const t:d3.ZoomTransform = this.$zoom_transform.value
-        const colsrows:RowsCols|null = this.$rowscols.value
-        const dimensions:SVGPlotDimensions = this.$dimensions.value
 
         const { k_x, k_y } = compute_zoom_scales({
             transform: t,
-            rows_cols: colsrows,
-            dimensions,
+            rows_cols: this.$rowscols.value,
+            plot_size: this.$plot_dimensions.value,
         })
 
         const tx:number = t.x ?? 0
@@ -351,6 +346,12 @@ export class D3Heatmap extends preact.Component<{
     #_1 = signals.effect( () => { this.update_heatmap() } )
 
 
+    /** Rect of the heatmap image within the SVG component */
+    $plot_dimensions:Readonly<Signal<Rect>> = signals.computed(
+        () => remove_margin_from_size(this.$container_size.value, this.margin)
+    )
+
+
     zoom: d3.ZoomBehavior<SVGSVGElement, unknown> = 
         d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([1, 125])
@@ -363,13 +364,13 @@ export class D3Heatmap extends preact.Component<{
             return;
         const { cols, rows } = rows_cols
 
-        const dimensions:SVGPlotDimensions = this.#get_dimensions()
+        const dimensions:Rect = this.$plot_dimensions.value
 
         const target_maximum_pixel_size = 25;
         const maximum_zoom_x:number = 
-            cols * target_maximum_pixel_size / dimensions.plot_width
+            cols * target_maximum_pixel_size / dimensions.width
         const maximum_zoom_y:number = 
-            rows * target_maximum_pixel_size / dimensions.plot_height
+            rows * target_maximum_pixel_size / dimensions.height
         const maximum_zoom:number = Math.max(maximum_zoom_x, maximum_zoom_y)
 
         this.zoom.scaleExtent([1, maximum_zoom])
@@ -378,9 +379,9 @@ export class D3Heatmap extends preact.Component<{
     
     #svgimage_onclick:preact.MouseEventHandler<SVGImageElement> = (event) => {
         const [mx, my] = d3.pointer(event, this.svgimage_ref.current);
-        const dimensions:SVGPlotDimensions = this.#get_dimensions()
-        const w:number = dimensions.plot_width
-        const h:number = dimensions.plot_height
+        const dimensions:Rect = this.$plot_dimensions.value
+        const w:number = dimensions.width
+        const h:number = dimensions.height
         const rows_cols:RowsCols|null = this.$rowscols.value
         if(rows_cols == null)
             return
@@ -407,7 +408,7 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmousemove:preact.MouseEventHandler<SVGImageElement> = (event) => {
-        if(!this.#is_hover_enabled())
+        if(!this.props.enable_hover)
             return
         const [mx, my] = d3.pointer(event, this.svgimage_ref.current)
         const [root_x, root_y] = d3.pointer(event, this.root_ref.current)
@@ -423,25 +424,12 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmouseleave:preact.MouseEventHandler<SVGImageElement> = () => {
-        if(!this.#is_hover_enabled())
+        if(!this.props.enable_hover)
             return
         this.$hover_position.value = null
         this.props.on_hover?.(null)
     }
 
-    #is_zoom_enabled(): boolean {
-        return this.props.enable_zoom != false
-    }
-
-    #is_hover_enabled(): boolean {
-        return this.props.enable_hover != false
-    }
-
-
-    /** Compute svg and plot dimensions from container size */
-    #get_dimensions(): SVGPlotDimensions {
-        return get_dimensions(this.$container_size.value, this.margin)
-    }
 
     /** Update container dimensions when parent size changes */
     #update_container_size(width:number, height:number): void {
@@ -486,7 +474,7 @@ export class D3Heatmap extends preact.Component<{
             ),
             y_axis: this.props.$y_axis.value,
             rows_cols: this.$rowscols.value,
-            dimensions: this.#get_dimensions(),
+            plotsize: this.$plot_dimensions.value,
             item_index_by_coord: this.$coordinates_to_item_index.value,
         })
     }
@@ -496,6 +484,10 @@ export class D3Heatmap extends preact.Component<{
             t => (typeof t) == 'number' ? t : t.getTime() /1000
         )
     })
+
+
+    private static next_clip_id:number = 0
+    private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
 }
 
 
@@ -538,13 +530,13 @@ function HoverOverlay(props: {
 /** Overlay of the size of one heatmap pixel at the current position of the cursor */
 function HoverMarker(props:{
     $position:   Readonly<Signal<HoverPosition|null>>,
-    $dimensions: Readonly<Signal<SVGPlotDimensions>>,
+    $plotsize:   Readonly<Signal<Size>>,
     $dataitems:  Readonly<Signal<DataItem[]>>,
     $rowscols:   Readonly<Signal<RowsCols|null>>
 }): JSX.Element|null {
 
     // NOTE: subscribing to signals here before early exit returns
-    const {plot_width, plot_height} = props.$dimensions.value;
+    const {width, height}        = props.$plotsize.value;
     const item_index:number|null = props.$position.value?.item_index ?? null
     const data_items:DataItem[]  = props.$dataitems.value;
     const colsrows:RowsCols|null = props.$rowscols.value
@@ -556,8 +548,8 @@ function HoverMarker(props:{
     if(item == undefined)
         return null;
 
-    const item_width:number  = plot_width / colsrows.cols;
-    const item_height:number = plot_height / colsrows.rows;
+    const item_width:number  = width / colsrows.cols;
+    const item_height:number = height / colsrows.rows;
     
     const x:number = item_width * item.x;
     const y:number = item_height * (colsrows.rows - 1 - item.y)
@@ -583,21 +575,24 @@ export type SVGPlotDimensions = {
     plot_height: number,
 }
 
-type Size = {
+export type Size = {
     width: number,
     height: number,
 }
 
-type Point = {
+export type Point = {
     x: number,
     y: number,
 }
 
+/** x, y, width, height */
+export type Rect = Point & Size;
+
 type PlotMargin = {
-    top: number,
-    right: number,
+    top:    number,
+    right:  number,
     bottom: number,
-    left: number,
+    left:   number,
 }
 
 export type RowsCols = {
@@ -621,14 +616,11 @@ type ZoomScales = {
     k_y: number,
 }
 
-/** Compute svg and plot dimensions from measured size */
-export function get_dimensions(measured: Size, margin: PlotMargin): SVGPlotDimensions {
-    const svg_width: number = measured.width
-    const svg_height: number = measured.height
-    const plot_width: number = Math.max(svg_width - margin.left - margin.right, 1)
-    const plot_height: number = Math.max(svg_height - margin.top - margin.bottom, 1)
 
-    return { svg_width, svg_height, plot_width, plot_height }
+export function remove_margin_from_size(size: Size, margin: PlotMargin): Rect {
+    const width: number  = Math.max(size.width - margin.left - margin.right, 1)
+    const height: number = Math.max(size.height - margin.top - margin.bottom, 1)
+    return { x:margin.left, y:margin.top, width, height }
 }
 
 /** Compute rows/cols from item coordinates */
@@ -654,7 +646,7 @@ export function get_rows_cols(data: DataItem[]): RowsCols | null {
 export function compute_zoom_scales(props: {
     transform: d3.ZoomTransform,
     rows_cols: RowsCols | null,
-    dimensions: SVGPlotDimensions,
+    plot_size: Size,
 }): ZoomScales {
     const base_k: number = props.transform.k ?? 1
 
@@ -665,8 +657,8 @@ export function compute_zoom_scales(props: {
     const rows:number = Math.max(props.rows_cols.rows, 1)
 
     // NOTE: this is unaffected by zoom
-    const cell_width:number = props.dimensions.plot_width / cols
-    const cell_height:number = props.dimensions.plot_height / rows
+    const cell_width:number  = props.plot_size.width / cols
+    const cell_height:number = props.plot_size.height / rows
     const base_aspect:number =
         (cell_height <= 0) ? 1 : cell_width / cell_height
 
@@ -728,14 +720,14 @@ export function get_item_index_at(
 
 /** Build hover model from mouse and plot state */
 export function compute_hover_position_from_mouse(props: {
-    mx: number,
-    my: number,
-    root_x: number,
-    root_y: number,
-    x_axis: number[],
-    y_axis: string[],
-    rows_cols: RowsCols | null,
-    dimensions: SVGPlotDimensions,
+    mx:         number,
+    my:         number,
+    root_x:     number,
+    root_y:     number,
+    x_axis:     number[],
+    y_axis:     string[],
+    rows_cols:  RowsCols | null,
+    plotsize:   Size,
     item_index_by_coord: Map<string, number>,
 }): HoverPosition | null {
     const rows_cols: RowsCols | null = props.rows_cols
@@ -745,9 +737,9 @@ export function compute_hover_position_from_mouse(props: {
         return null
 
     const col: number = 
-        mouse_to_col(props.mx, props.dimensions.plot_width, rows_cols.cols)
+        mouse_to_col(props.mx, props.plotsize.width, rows_cols.cols)
     const row: number = 
-        mouse_to_row(props.my, props.dimensions.plot_height, rows_cols.rows)
+        mouse_to_row(props.my, props.plotsize.height, rows_cols.rows)
     if(col < 0 || row < 0)
         return null
 
@@ -808,14 +800,6 @@ export function constrain_size(
         height: Math.min(safe_size.height, safe_max)
     }
     return render_size
-}
-
-function size_exceeds(size: Size, max_side: number): boolean {
-    return size.width > max_side || size.height > max_side
-}
-
-function size_exceeds_offscreen_canvas_limit(size: Size): boolean {
-    return size_exceeds(size, OFFSCREEN_CANVAS_MAX_SIDE)
 }
 
 
