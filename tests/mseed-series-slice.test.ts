@@ -2,6 +2,7 @@ import { assert } from 'asserts'
 import * as path from '@std/path'
 
 import {
+    combine_mseed_codes,
     read_mseed_metadata,
     type MSeedMetadata,
 } from '../frontend/lib/mseed-parsing.ts'
@@ -43,11 +44,18 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
         assert(!(mseeds instanceof Error))
 
         const slice_end_index: number = compute_total_samples(mseeds)
+        const code: string = combine_mseed_codes(mseeds[0]!.meta)
+        const request_start: Date = mseeds[0]!.meta.starttime
+        const request_end: Date = new Date(
+            request_start.getTime()
+            + (slice_end_index / mseeds[0]!.meta.samplerate) * 1000
+        )
 
         const data: Float32Array|Error = await read_mseed_slice_across_files(
             mseeds,
-            0,
-            [0, slice_end_index],
+            code,
+            request_start,
+            request_end,
         )
         assert(!(data instanceof Error))
         assert(data.length == slice_end_index)
@@ -63,11 +71,18 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
         assert(!(mseeds instanceof Error))
 
         const slice_end_index: number = compute_total_samples(mseeds)
+        const code: string = combine_mseed_codes(mseeds[0]!.meta)
+        const request_start: Date = mseeds[0]!.meta.starttime
+        const request_end: Date = new Date(
+            request_start.getTime()
+            + (slice_end_index / mseeds[0]!.meta.samplerate) * 1000
+        )
 
         const data: Float32Array|Error = await read_mseed_slice_across_files(
             mseeds,
-            0,
-            [0, slice_end_index],
+            code,
+            request_start,
+            request_end,
         )
         assert(!(data instanceof Error))
         assert(data.length == slice_end_index)
@@ -82,10 +97,19 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
             await build_mseed_series(STA1_FILES)
         assert(!(mseeds instanceof Error))
 
+        const code: string = combine_mseed_codes(mseeds[0]!.meta)
+        const request_start: Date = new Date(
+            mseeds[0]!.meta.starttime.getTime() + 10000
+        )
+        const request_end: Date = new Date(
+            mseeds[0]!.meta.starttime.getTime() + 5000
+        )
+
         const data: Float32Array|Error = await read_mseed_slice_across_files(
             mseeds,
-            0,
-            [10, 5],
+            code,
+            request_start,
+            request_end,
         )
         assert(data instanceof Error)
     })
@@ -98,11 +122,19 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
         const total_samples: number = compute_total_samples(mseeds)
         const extra_samples: number =
             Math.floor(mseeds[0]!.meta.samplerate * 5)
+        const code: string = combine_mseed_codes(mseeds[0]!.meta)
+        const request_start: Date = mseeds[0]!.meta.starttime
+        const request_end: Date = new Date(
+            request_start.getTime()
+            + ((total_samples + extra_samples) / mseeds[0]!.meta.samplerate)
+            * 1000
+        )
 
         const data: Float32Array|Error = await read_mseed_slice_across_files(
             mseeds,
-            0,
-            [0, total_samples + extra_samples],
+            code,
+            request_start,
+            request_end,
         )
         assert(!(data instanceof Error))
         assert(data.length == total_samples + extra_samples)
@@ -122,11 +154,18 @@ Deno.test('mseed-series-slice', async (t:Deno.TestContext) => {
         assert(!(mseeds instanceof Error))
 
         const slice_end_index: number = compute_total_samples(mseeds)
+        const code: string = combine_mseed_codes(mseeds[0]!.meta)
+        const request_start: Date = mseeds[0]!.meta.starttime
+        const request_end: Date = new Date(
+            request_start.getTime()
+            + (slice_end_index / mseeds[0]!.meta.samplerate) * 1000
+        )
 
         const data: Float32Array|Error = await read_mseed_slice_across_files(
             mseeds,
-            0,
-            [0, slice_end_index],
+            code,
+            request_start,
+            request_end,
         )
         assert(!(data instanceof Error))
         assert(data.length == slice_end_index)
@@ -147,10 +186,12 @@ async function build_mseed_series(
             const buffer: Uint8Array<ArrayBuffer> = Deno.readFileSync(file_path)
             const filename: string = path.basename(file_path)
             const file: File = new File([buffer], filename)
-            const meta: MSeedMetadata|Error = await read_mseed_metadata(file)
-            if(meta instanceof Error)
-                return meta
-            output.push({file, meta})
+            const metadata: MSeedMetadata[]|Error = await read_mseed_metadata(file)
+            if(metadata instanceof Error)
+                return metadata
+            if(metadata.length == 0)
+                return new Error('Missing MSEED metadata.')
+            output.push({file, meta: metadata[0]!})
         }
     } catch(e) {
         return (e instanceof Error) ? e : new Error(String(e))

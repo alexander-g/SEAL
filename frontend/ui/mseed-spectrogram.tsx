@@ -49,7 +49,7 @@ export type MSEED_Data = {
 
 
 type MSEED_SpectrogramProps = {
-    $data: Readonly< Signal<MSEED_Data|null> >;
+    $data: Readonly< Signal<MSEED_Data[]> >;
 
     /** Flag indicating that new data is being loaded */
     $loading: Readonly<Signal<boolean>>;
@@ -73,18 +73,16 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 extra_actions    = {this.to_component_settings_actions()}
                 on_apply         = {this.on_new_settings}
             >
-                <div ref = {this.plot_container_ref} style = {{width: '100%', height: '100%'}}>
-                    <D3Heatmap
-                        $data        = {this.$heatmap_data}
-                        $x_axis      = {this.$t_axis}
-                        $y_axis      = {this.$f_axis}
-                        on_click     = {() => {}}
-                        $title       = {this.$title}
-                        y_axis_label = 'Frequency (Hz)'
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                        downsample   = 'maxpool'
-                    />
+                
+                <div style = {{
+                    display: 'flex',
+                    flexDirection:'column',
+                    height: '100%',
+                    // minHeight: 0,
+                }} ref = {this.plot_container_ref} >
+
+                    { this.$d3_heatmaps }
+
                 </div>
             </SettingsContainer>
         </ContainerWithOverlay>
@@ -107,8 +105,8 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
 
     /** Export the currently visible spectrogram to PNG. */
     export_png = async (): Promise<void> => {
-        const data: MSEED_Data | null = this.props.$data.value
-        if(data == null) {
+        const data: MSEED_Data[] = this.props.$data.value
+        if(data.length == 0) {
             console.warn('PNG export failed: no visible spectrogram')
             return
         }
@@ -119,27 +117,30 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             return
         }
 
-        const svg_element: SVGSVGElement | null =
-            container.querySelector('.d3-container svg')
-        if(svg_element == null) {
+        const svg_elements: SVGSVGElement[] = Array.from(
+            container.querySelectorAll('.d3-container svg')
+        )
+        if(svg_elements == null) {
             console.warn('PNG export failed: no visible spectrogram SVG')
             return
         }
 
-        const i0: number = data.slice_start_index
-        const start_time: Date = new Date(
-            data.start_time.getTime() + i0 * 1000 / data.fs
-        )
+        let filename:string = 'spectrogram.png'
+        if(data.length == 1) {
+            const item:MSEED_Data = data[0]!
+            const i0: number = item.slice_start_index
+            const start_time: Date = new Date(
+                item.start_time.getTime() + i0 * 1000 / item.fs
+            )
 
-        const filename: string = format_png_export_filename(
-            strftime_ISO8601_datetime(start_time),
-            data.code,
-            'spectrogram',
-        )
-        const png_file: File | Error = await export_visible_svgs_to_png(
-            [svg_element],
-            filename,
-        )
+            filename = format_png_export_filename(
+                strftime_ISO8601_datetime(start_time),
+                item.code,
+                'spectrogram',
+            )
+        }
+        const png_file: File | Error = 
+            await export_visible_svgs_to_png(svg_elements, filename)
         if(png_file instanceof Error) {
             console.warn('PNG export failed:', png_file.message)
             return
@@ -158,91 +159,202 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     }
 
 
-    /** Heatmap pixels */
-    $heatmap_data: Signal<HeatmapDataItem[]> = new Signal([])
-
-    /** X-axis values */
-    $t_axis: Signal<Date[]> = new Signal([])
-
-    /** Y-axis values */
-    $f_axis: Signal<string[]> = new Signal([])
-
-    /** Plot title */
-    $title: Signal<string> = new Signal('')
+    /** List of inputs forwarded to individual {@link D3Heatmap} elements. */
+    $d3_inputs: Signal<( D3Input|null )[]> = new Signal([])
 
 
     /** Flag indicating if a new spectrogram is currently being computed */
     $updating: Signal<boolean> = new Signal(false)
 
+    // NOTE: cannot use signals.computed() because of async
     #update_effect_cleanup_fn = signals.effect( (async () => {
     try {
         // signal subscriptions first
-        const data: MSEED_Data|null = this.props.$data.value;
-        const f_min: number = this.settings.$f_min.value
-        const f_max: number = this.settings.$f_max.value
+        const data: MSEED_Data[]    = this.props.$data.value;
+        const f_min: number         = this.settings.$f_min.value
+        const f_max: number         = this.settings.$f_max.value
         const signal_length: number = this.settings.$slice_length.value
-        const scale: boolean = this.settings.$scale_colors.value
+        const scale: boolean        = this.settings.$scale_colors.value
 
         if(this.$updating.peek())
             return
         this.$updating.value = true
 
-        
-        if(data == null) {
-            console.log('TODO: reset spectrogram')
-            return;
+
+        const d3_inputs: typeof this.$d3_inputs['value'] = []
+        const new_cache: typeof this._spectrogram_cache = {}
+        for(const item of data) {
+            const i0:number = item.slice_start_index
+            const i1:number = i0 + signal_length * item.fs
+
+            const _cachekey:string = _construct_cache_key(item, i0, i1)
+            const spectrogram_output:SpectrogramOutput|Error
+                = this._spectrogram_cache[_cachekey]
+                ?? await create_spectrogram_for_visualization_parallelized(
+                        item.signal, 
+                        item.fs, 
+                        i0, 
+                        i1
+                    )
+            if(spectrogram_output instanceof Error) {
+                console.log(`Could not create spectrogram`, spectrogram_output)
+                d3_inputs.push(null)
+                continue
+            }
+            new_cache[_cachekey] = spectrogram_output
+
+            const spectrogram_start_s:number =
+                item.start_time.getTime() / 1000
+                + (i0 / item.fs)
+
+            const t_axis: Date[] = Array
+                .from(spectrogram_output.t_axis)
+                .map( t => spectrogram_start_s + t )
+                .map( t => new Date(t * 1000) )
+            
+            const f_axis: string[] = Array.from(spectrogram_output.f_axis)
+                .filter(
+                    f => (f_min == null || f >= f_min) && (f_max == null || f <= f_max)
+                ).map(f => format_frequency_label(f))
+
+            const spectrogram_heatmap_data: HeatmapDataItem[] = 
+                spectrogram_to_heatmap_items(spectrogram_output, f_min, f_max, scale)
+            if(spectrogram_heatmap_data.length == 0)
+                // TODO: make this an actual user-visible error
+                console.error('Zero spectrogram pixels.')
+            
+            
+            d3_inputs.push({
+                pixels: spectrogram_heatmap_data,
+                t_axis,
+                f_axis,
+                code: item.code,
+            })
         }
 
-        const i0:number = data.slice_start_index
-        const i1:number = i0 + signal_length * data.fs
-
-        const spectrogram_output: SpectrogramOutput|Error = 
-            await create_spectrogram_for_visualization_parallelized(
-                data.signal, 
-                data.fs, 
-                i0, 
-                i1
-            )
-        if(spectrogram_output instanceof Error) {
-            console.error(
-                `Error computing spectrogram: ${spectrogram_output.message}`
-            )
-            return;
-        }
-        const spectrogram_start_s:number =
-            data.start_time.getTime() / 1000
-            + (i0 / data.fs)
-
-        const t_axis: number[] = Array.from(
-            spectrogram_output.t_axis,
-            t => spectrogram_start_s + t
-        )
-        const f_axis: string[] = Array.from(spectrogram_output.f_axis)
-            .filter(
-                f => (f_min == null || f >= f_min) && (f_max == null || f <= f_max)
-            ).map(f => format_frequency_label(f))
-        const title: string = `${data.code} - Spectrogram`
-
-        const spectrogram_heatmap_data: HeatmapDataItem[] = 
-            spectrogram_to_heatmap_items(spectrogram_output, f_min, f_max, scale)
-        if(spectrogram_heatmap_data.length == 0)
-            // TODO: make this an actual user-visible error
-            console.error('Zero spectrogram pixels.')
-        
-        this.$heatmap_data.value = spectrogram_heatmap_data
-        this.$t_axis.value = t_axis.map( t => new Date(t * 1000) )
-        this.$f_axis.value = f_axis
-        this.$title.value = title
+        this._spectrogram_cache = new_cache
+        this.$d3_inputs.value = d3_inputs
+        return
     } finally {
         this.$updating.value = false;
     }
     }) as () => void)
+
+    _spectrogram_cache:Record<string,SpectrogramOutput> = {}
+
+
+
+    /** List of JSX elements to be rendered */
+    $d3_heatmaps: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
+        const d3_elements: JSX.Element[] = []
+        for(const index in this.$d3_inputs.value) {
+            const inputsignals:D3InputSignals = 
+                this.#get_individual_d3_input_as_signal(Number(index))
+            
+            d3_elements.push(
+                // NOTE: this <div> is needed to constrain the height
+                <div
+                    key = {index}
+                    style = {{
+                        flex: '1 1 0',
+                        minHeight: 0,
+                    }}
+                >
+                    <D3Heatmap 
+                        $data        = {inputsignals.pixels}
+                        $x_axis      = {inputsignals.t_axis}
+                        $y_axis      = {inputsignals.f_axis}
+                        on_click     = {() => {}}
+                        $title       = {inputsignals.$title}
+                        y_axis_label = {inputsignals.$y_axis_label}
+                        enable_hover = {false}
+                        enable_zoom  = {false}
+                        downsample   = 'maxpool'
+                    />
+                </div>
+            )
+        }
+        return d3_elements
+    } )
+
+    /** Create or return a cached signals.computed() to a specified 
+     *  index within `$d3_inputs` */
+    #get_individual_d3_input_as_signal(index:number): D3InputSignals {
+        if(index in this.#cached_individual_d3_input_signals)
+            return this.#cached_individual_d3_input_signals[index]!
+        // else
+
+        this.#cached_individual_d3_input_signals[index] = {
+            pixels: signals.computed( () => {
+                return this.$d3_inputs.value[index]?.pixels ?? []
+            } ),
+            f_axis: signals.computed( () => {
+                return this.$d3_inputs.value[index]?.f_axis ?? []
+            } ),
+            t_axis: signals.computed( () => {
+                return this.$d3_inputs.value[index]?.t_axis ?? []
+            } ),
+            code: signals.computed( () => {
+                return this.$d3_inputs.value[index]?.code ?? 'Error'
+            } ),
+            $title: signals.computed( () => {
+                const more_than_one_plot:boolean = 
+                    (this.$d3_inputs.value.length > 1)
+                if(more_than_one_plot)
+                    return ''
+                
+                const code:string|undefined = this.$d3_inputs.value[index]?.code
+                if(code == undefined)
+                    return 'Error'
+                // else
+                return `${code} - Spectrogram`
+            } ),
+            
+            $y_axis_label: signals.computed( () => {
+                const code:string|undefined = this.$d3_inputs.value[index]?.code
+                if(code == undefined)
+                    return ''
+                // else
+
+                const more_than_one_plot:boolean = 
+                    (this.$d3_inputs.value.length > 1)
+                if(more_than_one_plot)
+                    return code
+                return `Frequency (Hz)`
+            } )
+        }
+        return this.#cached_individual_d3_input_signals[index]!
+    }
+
+    #cached_individual_d3_input_signals:  Record<number, D3InputSignals > = {}
 
 
     $loading_or_updating: Readonly<Signal<boolean>> = signals.computed( () => {
         return this.props.$loading.value || this.$updating.value;
     } )
 }
+
+
+type D3Input = {
+    pixels: HeatmapDataItem[],
+    f_axis: string[],
+    t_axis: Date[],
+    code:  string,
+}
+
+type D3InputSignals = {
+    [K in keyof D3Input]: Readonly< Signal<D3Input[K]> >;
+} & {
+    $title:        Readonly<Signal<string>>
+    $y_axis_label: Readonly<Signal<string>>
+}
+
+
+function _construct_cache_key(item:MSEED_Data, i0:number, i1:number): string {
+    return `${item.code}-${item.start_time}-${item.signal.length}-${i0}-${i1}`
+}
+
+
 
 
 

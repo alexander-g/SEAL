@@ -32,6 +32,21 @@ type TremorWASM_Module = {
         out_length_ptr: pointer,
     ) => number;
 
+    _read_mseed_segment: (
+        buffer:                pointer,
+        bufferlength:          bigint,
+        code_filter:           pointer,
+        code_filter_length:    bigint,
+        segment_starttime_u64: bigint,
+        starttime_u64:         pointer,
+        endtime_u64:           pointer,
+        nsamples_u64:          pointer,
+        samplerate_f64:        pointer,
+        code_32bytes:          pointer,
+        samplebuffer_i32:      pointer,
+        samplebuffer_size:     pointer,
+    ) => number;
+
     _malloc: (nbytes:number) => pointer,
     _free:   (ptr:pointer) => void,
 
@@ -70,6 +85,11 @@ export type MSEED_WriteOptions = {
     filename?:     string
 }
 
+export interface MSEED_SegmentQuery {
+    code:      string
+    starttime: Date
+}
+
 /** Configure wasm memory guardrails and reinit behavior. */
 type TremorWasmOptions = {
     max_memory_bytes?: number
@@ -91,13 +111,23 @@ export class TremorWasm {
     }
 
     async read_metadata(file:File): Promise<MSEED_Meta|Error> {
-        const readresult:MSEED_ReadResult|Error = await this._read(file, 0);
-        return (readresult instanceof Error)? readresult : readresult.meta;
+        const read_result:MSEED_ReadResult|Error = await this._read(file, 0)
+        return (read_result instanceof Error) ? read_result : read_result.meta
+    }
+
+    async read_segment_metadata(
+        file:  File,
+        query: MSEED_SegmentQuery,
+    ): Promise<MSEED_Meta|Error> {
+        const read_result:MSEED_ReadResult|Error = 
+            await this._read(file, 0, query)
+        return (read_result instanceof Error) ? read_result : read_result.meta
     }
 
     private async _read(
-        file:File,
-        nsamplestoread:number,
+        file:           File,
+        nsamplestoread: number,
+        segment_query:  MSEED_SegmentQuery|null = null,
     ): Promise<MSEED_ReadResult|Error> {
         const reinit_error:Error|null =
             await this.#maybe_reinitialize_if_needed()
@@ -105,14 +135,15 @@ export class TremorWasm {
             return reinit_error
 
         const readresult:MSEED_ReadResult|Error =
-            await this._read_internal(file, nsamplestoread)
+            await this._read_internal(file, nsamplestoread, segment_query)
         
         return readresult;
     }
 
     private async _read_internal(
-        file:File,
-        nsamplestoread:number,
+        file:           File,
+        nsamplestoread: number,
+        segment_query:  MSEED_SegmentQuery|null,
     ): Promise<MSEED_ReadResult|Error> {
         try {
             const buffer:Uint8Array = new Uint8Array(await file.arrayBuffer())
@@ -133,17 +164,46 @@ export class TremorWasm {
             const samplebuffer_p:pointer = 
                 (nsamplestoread > 0) ? this.#malloc(samplebuffersize) : 0;
 
-            const rc:number = this.wasm._read_mseed(
-                buffer_p,
-                BigInt(buffer.length), 
-                starttime_p, 
-                endtime_p, 
-                nsamples_p, 
-                samplerate_p, 
-                code_p,
-                samplebuffer_p,
-                nsamplestoread,
-            );
+            const code_filter:string = segment_query?.code.trim() ?? ''
+            const code_filter_u8:Uint8Array = new TextEncoder().encode(
+                code_filter,
+            )
+            const code_filter_p:pointer = (segment_query != null)
+                ? this.#malloc(code_filter_u8.length)
+                : 0
+            if(segment_query != null)
+                this.wasm.HEAPU8.set(code_filter_u8, code_filter_p)
+
+            const segment_starttime_u64:bigint = (segment_query == null)
+                ? 0n
+                : BigInt(segment_query.starttime.getTime()) * 1000000n
+
+            const rc:number = (segment_query == null)
+                ? this.wasm._read_mseed(
+                    buffer_p,
+                    BigInt(buffer.length),
+                    starttime_p,
+                    endtime_p,
+                    nsamples_p,
+                    samplerate_p,
+                    code_p,
+                    samplebuffer_p,
+                    nsamplestoread,
+                )
+                : this.wasm._read_mseed_segment(
+                    buffer_p,
+                    BigInt(buffer.length),
+                    code_filter_p,
+                    BigInt(code_filter_u8.length),
+                    segment_starttime_u64,
+                    starttime_p,
+                    endtime_p,
+                    nsamples_p,
+                    samplerate_p,
+                    code_p,
+                    samplebuffer_p,
+                    nsamplestoread,
+                )
             if(rc != 0)
                 return new Error(`Could not read mseed. (${rc})`)
         
@@ -217,6 +277,20 @@ export class TremorWasm {
         const readresult:MSEED_ReadResult|Error = 
             await this._read(file, meta.nsamples)
         return (readresult instanceof Error)? readresult : readresult.data!;
+    }
+
+    async read_segment_data(
+        file  :File,
+        query: MSEED_SegmentQuery,
+    ): Promise<Float32Array|Error> {
+        const meta:MSEED_Meta|Error =
+            await this.read_segment_metadata(file, query)
+        if(meta instanceof Error)
+            return meta
+
+        const read_result:MSEED_ReadResult|Error =
+            await this._read(file, meta.nsamples, query)
+        return (read_result instanceof Error) ? read_result : read_result.data!
     }
 
     /** Write MiniSEED data and return a File. */

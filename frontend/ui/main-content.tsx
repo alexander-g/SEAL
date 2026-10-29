@@ -323,7 +323,7 @@ export class MainContent extends preact.Component<MainContentProps> {
     $signal_plot_data: Signal<MSEED_SignalPlotData[]> = new Signal([])
 
     /** Currently active data in the spectrogram plot */
-    $spectrogram_plot_data: Signal<MSEED_SpectrogramData | null> = new Signal(null)
+    $spectrogram_plot_data: Signal<MSEED_SpectrogramData[]> = new Signal([])
 
     /** Currently active data in the audio playback component */
     $audiodata: Signal<AudioWaveform | null> = new Signal(null)
@@ -347,6 +347,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         const new_signal_plot_data_list: MSEED_SignalPlotData[] = []
         const old_signal_plot_data_list: MSEED_SignalPlotData[] = 
             this.$signal_plot_data.peek()
+        const new_spectrogram_data_list: MSEED_SpectrogramData[] = []
 
         try {
         for(const i in selected_slices) {
@@ -365,14 +366,17 @@ export class MainContent extends preact.Component<MainContentProps> {
             const slice_length_samples: number = slice_length * fs
             const slice_end_index: number =
                 selectedslice.start_index + slice_length_samples
+            const slice_start_time:Date = new Date(
+                mseed.meta.starttime.getTime() 
+                + (selectedslice.start_index / fs) * 1000
+            )
 
             // check in the current $signal_plot_data if this item already exists
             const previous: MSEED_SignalPlotData|null = 
                 _find_previous_mseed_signal_plot_data(
                     old_signal_plot_data_list, 
                     {
-                        start_time: mseed.meta.starttime, 
-                        slice_start_index:selectedslice.start_index, 
+                        start_time: slice_start_time, 
                         code, 
                         slice_length_samples
                     }
@@ -383,8 +387,12 @@ export class MainContent extends preact.Component<MainContentProps> {
                 previous?.data
                 ?? await read_mseed_slice_across_files(
                     mseeds,
-                    selectedslice.file_index,
-                    [selectedslice.start_index, slice_end_index],
+                    code,
+                    slice_start_time,
+                    new Date(
+                        mseed.meta.starttime.getTime()
+                        + (slice_end_index / fs) * 1000
+                    ),
                 )
             if(data instanceof Error){
                 console.error(data as Error)
@@ -397,24 +405,26 @@ export class MainContent extends preact.Component<MainContentProps> {
             
             new_signal_plot_data_list.push({
                 data,
-                start_time:        mseed.meta.starttime,
+                start_time:        slice_start_time,
                 sample_rate_hz:    mseed.meta.samplerate,
                 code:              code,
                 response:          channel?.response,
-                slice_start_index: selectedslice.start_index,
+                slice_start_index: 0,
             })
 
             // for now only signal plots with multiple signals
-            if( Number(i) > 0 )
-                continue
+            // TODO: multi-signal spectrograms etc
+            // if( Number(i) > 0 )
+                // continue
 
-            this.$spectrogram_plot_data.value = {
+
+            new_spectrogram_data_list.push({
                 signal:            data,
-                start_time:        mseed.meta.starttime,
+                start_time:        slice_start_time,
                 fs:                mseed.meta.samplerate,
                 code:              code,
-                slice_start_index: selectedslice.start_index,
-            }
+                slice_start_index: 0,
+            })
             // this.$modulation_power_spectrum_data.value = {
             //     signal:        data,
             //     slice_indices: [slice_start_index, resolved_slice_end_index],
@@ -436,6 +446,7 @@ export class MainContent extends preact.Component<MainContentProps> {
             this.$plots_loading.value = false
         }
         this.$signal_plot_data.value = new_signal_plot_data_list
+        this.$spectrogram_plot_data.value = new_spectrogram_data_list
 
         return
     })()
@@ -527,7 +538,7 @@ type AssertEmpty<T extends Record<PropertyKey, never>> = T;
 
 
 type PartialMSeed_SignalPlotData = 
-    Pick<MSEED_SignalPlotData, 'code'|'start_time'|'slice_start_index'>
+    Pick<MSEED_SignalPlotData, 'code'|'start_time'>
     & { slice_length_samples:number }
 
 
@@ -538,8 +549,8 @@ function _find_previous_mseed_signal_plot_data(
 ): MSEED_SignalPlotData|null {
     for(const item of data_list) {
         if(item.code == target.code
-        && item.start_time == target.start_time
-        && item.data.length >= target.slice_length_samples + target.slice_start_index
+        && item.start_time.getTime() == target.start_time.getTime()
+        && item.data.length >= target.slice_length_samples
         )
             return item
     }
@@ -551,6 +562,7 @@ function _find_previous_mseed_signal_plot_data(
             MSEED_SignalPlotData, 
             keyof PartialMSeed_SignalPlotData
             | 'data'
+            | 'slice_start_index'
             | 'sample_rate_hz'
             | 'x_axis_label'
             | 'y_axis_label'

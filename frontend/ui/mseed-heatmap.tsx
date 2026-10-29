@@ -441,7 +441,14 @@ export class MSEED_Heatmap extends preact.Component<{
 
 
             const file: File = mseed.file
-            const signal:Float32Array|Error = await tremorwasm.read_data(file!)
+            const signal:Float32Array|Error = 
+                await tremorwasm.read_segment_data(
+                    file!, 
+                    {
+                        code:combine_mseed_codes(mseed.meta), 
+                        starttime:mseed.meta.starttime
+                    }
+                )
             if(signal instanceof Error)
                 // TODO: should continue and collect errors instead of returning on first failure
                 return signal as Error
@@ -498,7 +505,14 @@ export class MSEED_Heatmap extends preact.Component<{
             if(mseed == undefined)
                 continue;
 
-            const data:Float32Array|Error = await tremorwasm.read_data(file!)
+            const data:Float32Array|Error = 
+                await tremorwasm.read_segment_data(
+                    file!, 
+                    {
+                        code:combine_mseed_codes(mseed.meta), 
+                        starttime:mseed.meta.starttime
+                    }
+                )
             if(data instanceof Error)
                 return data as Error
             
