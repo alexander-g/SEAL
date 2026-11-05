@@ -1,3 +1,5 @@
+// deno-lint-ignore-file jsx-boolean-value
+
 import { preact, Signal, signals, JSX } from "../dep.ts"
 
 import { combine_mseed_codes }    from "../lib/mseed-parsing.ts";
@@ -6,9 +8,11 @@ import type { QuakeEvent }        from "../lib/quakeml.ts";
 import type { MSEED_FileAndMeta } from "../lib/file-input.ts";
 import { tremorwasm }             from "../lib/file-input.ts";
 import { WorkerPool }             from "../lib/workerpool.ts"
-import { is_deno }                from "../lib/util.ts"
 import { type Station }           from "../lib/station-xml.ts";
-
+import { 
+    find_exact, 
+    find_last_below 
+} from "../lib/util.ts"
 import { 
     D3Heatmap,
     type OnClickItem as D3OnClickitem,
@@ -58,8 +62,8 @@ export type InferenceEvent = {
 export type OnClickItem = {
     /** Index of the mseed file that was clicked on */
     mseed_index: number, 
-    /** Index within the mseed file that was clicked on */
-    start_index: number, 
+    /** The time that was clicked on */
+    start_time:  Date
     /** Whether the SHIFT key was pressed during the click */
     shiftkey:    boolean, 
     /** Whether the CTRL key was pressed during the click */
@@ -93,6 +97,9 @@ export class MSEED_Heatmap extends preact.Component<{
 
     /** The currently highlighted station. Can be both input and output. */
     $highlighted_station?: Signal<Station|null>
+
+    /** The currently visible signals in the signal plot and spectrogram */
+    $selected_signal_slices?: Readonly<Signal<DataSignalSlice[]>>
 }> {
     render(): JSX.Element {
         return <>
@@ -105,16 +112,20 @@ export class MSEED_Heatmap extends preact.Component<{
                 on_apply         = {this.on_new_settings}
             >
                 <D3Heatmap
-                    $data    = {this.$transformed_files}
-                    $x_axis  = {this.$x_axis}
-                    $y_axis  = {this.$y_axis}
-                    $y_axis_tick_values = {this.$y_axis_tick_values}
-                    $x_axis_markers = { this.$itemized_event_timestamps }
-                    $y_axis_markers = { this.$highlighted_rows }
-                    on_click = {this.on_heatmap_select}
-                    on_hover = {this.on_heatmap_hover}
+                    $data                  = {this.$heatmap_pixels}
+                    $x_axis                = {this.$x_axis}
+                    $y_axis                = {this.$y_axis}
+                    $y_axis_tick_values    = {this.$y_axis_tick_values}
+                    $x_axis_markers        = {this.$itemized_event_timestamps}
+                    $y_axis_markers        = {this.$highlighted_rows}
+                    on_click               = {this.on_heatmap_select}
+                    on_hover               = {this.on_heatmap_hover}
                     y_axis_label_formatter = {this.format_station_axis_label}
-                    colormap = 'magma'
+                    colormap               = 'magma'
+                    $heatmap_overlays      = {this.$heatmap_overlays}
+                    enable_hover           = {true}
+                    enable_zoom            = {true}
+                    ref                    = {this.d3heatmap_ref}
                 />
             </SettingsContainer>
         </ContainerWithOverlay>
@@ -168,7 +179,7 @@ export class MSEED_Heatmap extends preact.Component<{
         return transformed;
     })
 
-    $transformed_files:Readonly<Signal<HeatmapDataItemWithFile[]>> = signals.computed(() => {
+    $heatmap_pixels:Readonly<Signal<HeatmapDataItemWithFile[]>> = signals.computed(() => {
         const mode: HeatmapColorMode = this.settings.$heatmap_color_mode.value
         if(mode == 'envelope' && this.$envelope_items.value.length > 0)
             return this.$envelope_items.value
@@ -272,22 +283,15 @@ export class MSEED_Heatmap extends preact.Component<{
 
     on_heatmap_select = (selected:D3OnClickitem) => {
         const item:HeatmapDataItemWithFile|undefined = 
-            this.$transformed_files.value[selected.item_index];
+            this.$heatmap_pixels.value[selected.item_index];
         if(item == undefined) {
             console.error(`No corresponding item for index ${selected.item_index}`)
             return;
         }
-        const meta:MSeedMetadata = this.props.$mseed_meta.value[item.mseedindex]!
-        
-        const t0: number = item.timestamp;
-        const start_of_file_seconds:number = meta.starttime.getTime() / 1000
-        const start_seconds_within_file:number = t0 - start_of_file_seconds;
-        
-        const i0: number = 
-            Math.floor( Math.max(start_seconds_within_file * meta.samplerate, 0) )
+
         this.props.on_click({
             mseed_index: item.mseedindex, 
-            start_index: i0, 
+            start_time:  new Date(item.timestamp * 1000), 
             shiftkey:    selected.shiftkey, 
             ctrlkey:     selected.ctrlkey
         })
@@ -311,6 +315,69 @@ export class MSEED_Heatmap extends preact.Component<{
         return output;
     } )
 
+    /** Transforming the input $selected_slices to JSX overlays on the heatmap */
+    $heatmap_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
+        // subscriptions first
+        const x_axis:Date[]   = this.$x_axis.value
+        const y_axis:string[] = this.$y_axis.value
+        const mseeds: MSeedMetadata[] = this.props.$mseed_meta.value
+        const slices:DataSignalSlice[]|undefined = 
+            this.props.$selected_signal_slices?.value
+
+        if(slices == undefined)
+            return []
+        if(this.d3heatmap_ref.current == null)
+            return []
+
+        const _subscribed_but_not_used:unknown = 
+            this.d3heatmap_ref.current.$plot_dimensions.value;
+
+        const item_size:{width:number, height:number} = 
+            this.d3heatmap_ref.current.$item_size.peek()
+        // also not subscribing
+        const rows:number = this.d3heatmap_ref.current.$n_rows.peek()
+        const x_axis_timestamps:number[] = x_axis.map(Number)
+
+        const output:JSX.Element[] = []
+        for(const slice of  slices) {
+            // slice.end_time
+
+            const item:MSeedMetadata|undefined = mseeds[slice.mseed_index]
+            if(item == undefined)
+                continue
+
+            const code:string = combine_mseed_codes(item)
+            const item_y:number|null = find_exact(y_axis, code)
+            if(item_y == null)
+                continue
+
+            const item_x0:number|null = 
+                find_last_below(x_axis_timestamps, Number(slice.start_time))
+            const item_x1:number|null = 
+                find_last_below(x_axis_timestamps, Number(slice.end_time))
+            if(item_x0 == null || item_x1 == null)
+                continue
+
+            const x:number = item_size.width * (item_x0 + 1);
+            const y:number = item_size.height * (rows - 1 - item_y)
+            const w:number = Math.max(1, (item_x1 - item_x0)) * item_size.width
+
+            output.push(
+                <rect 
+                    x              = {x} 
+                    y              = {y} 
+                    width          = {w} 
+                    height         = {item_size.height} 
+                    fill           = "#f0f0f0"
+                    fill-opacity   = "0.3"
+                    stroke         = "none"
+                    pointer-events = "none"
+                />
+            )
+        }
+        return output
+    } )
+
     /** Called when user hovers on a pixel in the heatmap */
     on_heatmap_hover = (position:HoverCallbackPosition|null) => {
         if(position == null) {
@@ -321,7 +388,7 @@ export class MSEED_Heatmap extends preact.Component<{
 
         if(position.item_index != null) {
             const item:HeatmapDataItemWithFile|undefined = 
-                this.$transformed_files.value[position.item_index];
+                this.$heatmap_pixels.value[position.item_index];
             if(item == undefined) 
                 console.error(`No corresponding item for index ${position}`)
                 // NOTE 2 self: do not return here bc of on_events_hover()
@@ -417,7 +484,7 @@ export class MSEED_Heatmap extends preact.Component<{
     async compute_band_power_ratio(): Promise<HeatmapDataItemWithFile[]|Error> {
         const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
         const file_indices: Set<number> = 
-            new Set(this.$transformed_files.value.map(item => item.mseedindex))
+            new Set(this.$heatmap_pixels.value.map(item => item.mseedindex))
         
         
         const f0_min: number = this.settings.$band_power_ratio_band0_fmin.value
@@ -487,7 +554,7 @@ export class MSEED_Heatmap extends preact.Component<{
     async compute_envelope_heatmap_items(): Promise<EnvelopeHeatmapItem[]|Error> {
         const mseeds: MSEED_FileAndMeta[] = this.props.$mseeds.value
         const file_indices: Set<number> = 
-            new Set(this.$transformed_files.value.map(item => item.mseedindex))
+            new Set(this.$heatmap_pixels.value.map(item => item.mseedindex))
         
         const f_min: number = this.settings.$envelope_bandpass_fmin.value
         const f_max: number = this.settings.$envelope_bandpass_fmax.value
@@ -560,8 +627,11 @@ export class MSEED_Heatmap extends preact.Component<{
 
         return all_items;
     }
+
+    d3heatmap_ref: preact.RefObject<D3Heatmap> = preact.createRef()
 }
 
+export type DataSignalSlice = {mseed_index:number, start_time:Date, end_time:Date};
 
 type TransformedHeatmapData = {
     items:  HeatmapDataItemWithFile[],

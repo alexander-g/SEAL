@@ -1,5 +1,5 @@
 import {
-    create_item_index_by_coord,
+    build_item2index_map,
     compute_hover_position_from_mouse,
     remove_margin_from_size,
     get_rows_cols,
@@ -81,7 +81,7 @@ Deno.test('marker rect helpers build expected layer rectangles', () => {
 })
 
 Deno.test('item index map resolves item by coordinate', () => {
-    const item_index_by_coord = create_item_index_by_coord([
+    const item_index_by_coord = build_item2index_map([
         { x: 0, y: 0, color: 0.1 },
         { x: 3, y: 2, color: 0.9 },
     ])
@@ -92,7 +92,7 @@ Deno.test('item index map resolves item by coordinate', () => {
 })
 
 Deno.test('compute_hover_position_from_mouse returns hover details', () => {
-    const item_index_by_coord = create_item_index_by_coord([
+    const item_index_by_coord = build_item2index_map([
         { x: 1, y: 0, color: 1 },
     ])
 

@@ -189,12 +189,12 @@ export class D3Heatmap extends preact.Component<{
 
 
                     <Axes 
-                        plot_size     = {this.$plot_dimensions}
-                        $rowscols       = {this.$rowscols}
-                        $x_axis         = {this.props.$x_axis}
-                        $y_axis         = {this.props.$y_axis}
-                        $y_axis_tick_values = {this.props.$y_axis_tick_values}
-                        $zoom_transform = {this.$zoom_transform}
+                        plot_size              = {this.$plot_dimensions}
+                        $rowscols              = {this.$rowscols}
+                        $x_axis                = {this.props.$x_axis}
+                        $y_axis                = {this.props.$y_axis}
+                        $y_axis_tick_values    = {this.props.$y_axis_tick_values}
+                        $zoom_transform        = {this.$zoom_transform}
                         x_axis_label_formatter = {this.props.x_axis_label_formatter}
                         y_axis_label_formatter = {this.props.y_axis_label_formatter}
                     />
@@ -222,7 +222,7 @@ export class D3Heatmap extends preact.Component<{
 
 
     /** The current number of rows and columns. Cached here to avoid recomputation */
-    private $rowscols:Signal<RowsCols|null> = new Signal(null)
+    readonly $rowscols:Signal<RowsCols|null> = new Signal(null)
 
     /** Update $rowscols when $ data changes. */
     #_ = this.props.$data.subscribe( () => {
@@ -230,7 +230,7 @@ export class D3Heatmap extends preact.Component<{
     } )
 
     /** Number of rows in the current data */
-    private $n_rows:Readonly<Signal<number>> = signals.computed(() => {
+    readonly $n_rows:Readonly<Signal<number>> = signals.computed(() => {
         const colsrows:RowsCols|null = this.$rowscols.value
         if(colsrows == null)
             return 0
@@ -238,17 +238,30 @@ export class D3Heatmap extends preact.Component<{
     })
 
     /** Number of columns in the current data */
-    private $n_cols:Readonly<Signal<number>> = signals.computed(() => {
+    readonly $n_cols:Readonly<Signal<number>> = signals.computed(() => {
         const colsrows:RowsCols|null = this.$rowscols.value
         if(colsrows == null)
             return 0
         return colsrows.cols
     })
 
+    /** Height/width of an item pixel in the heatmap, in svg viewport units */
+    readonly $item_size: Readonly<Signal<Size>> = signals.computed( () => {
+        const {width, height}        = this.$plot_dimensions.value;
+        const colsrows:RowsCols|null = this.$rowscols.value
+        if(colsrows == null)
+            return {width:0, height:0}
+        //else
+        return {
+            width:  width / colsrows.cols, 
+            height: height / colsrows.rows
+        }
+    } )
 
-    private $coordinates_to_item_index:Readonly<Signal<Map<string, number>>> = 
+
+    readonly $coordinates_to_item_map:Readonly<Signal<Map<string, number>>> = 
         signals.computed(() =>
-            create_item_index_by_coord(this.props.$data.value)
+            build_item2index_map(this.props.$data.value)
         )
 
 
@@ -391,7 +404,7 @@ export class D3Heatmap extends preact.Component<{
         const imy:number = plot_y_to_row(my, h, rows)
 
         const item_index:number|null = get_item_index_at(
-            this.$coordinates_to_item_index.value,
+            this.$coordinates_to_item_map.value,
             imx,
             imy,
         )
@@ -475,7 +488,7 @@ export class D3Heatmap extends preact.Component<{
             y_axis: this.props.$y_axis.value,
             rows_cols: this.$rowscols.value,
             plotsize: this.$plot_dimensions.value,
-            item_index_by_coord: this.$coordinates_to_item_index.value,
+            item_index_by_coord: this.$coordinates_to_item_map.value,
         })
     }
 
@@ -697,7 +710,7 @@ export function plot_y_to_row(my: number, plot_height: number, rows: number): nu
 }
 
 /** Build O(1) lookup index for heatmap items by grid coordinate */
-export function create_item_index_by_coord(data: DataItem[]): Map<string, number> {
+export function build_item2index_map(data: DataItem[]): Map<string, number> {
     const output: Map<string, number> = new Map()
     for(let index: number = 0; index < data.length; index++) {
         const item: DataItem = data[index]!
@@ -708,11 +721,11 @@ export function create_item_index_by_coord(data: DataItem[]): Map<string, number
 
 /** Resolve item index by x/y coordinate */
 export function get_item_index_at(
-    item_index_by_coord: Map<string, number>,
+    item2index_map: Map<string, number>,
     x: number,
     y: number,
 ): number | null {
-    const index: number | undefined = item_index_by_coord.get(`${x}:${y}`)
+    const index: number | undefined = item2index_map.get(`${x}:${y}`)
     if(index == undefined)
         return null
     return index

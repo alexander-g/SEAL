@@ -15,6 +15,7 @@ import {
     MSEED_Heatmap,
     type InferenceEvent,
     type OnClickItem,
+    type DataSignalSlice as SignalSliceForHeatmap,
 } from './mseed-heatmap.tsx'
 
 import { AudioPlaybackControls } from './audio-playback-controls.tsx'
@@ -129,6 +130,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                             on_mseed_hover       = {this.on_mseed_hover}
                             on_events_hover      = {this.on_events_hover}
                             $highlighted_station = {this.$highlighted_station}
+                            $selected_signal_slices = {this.$selected_slices_for_heatmap}
                         />,
                     },
                     {
@@ -332,7 +334,7 @@ export class MainContent extends preact.Component<MainContentProps> {
      *  the slice length, then refresh all plots */
     #_1 = signals.effect( () => { (async () => {
         // signal subscriptions
-        const slice_length:number = this.$signal_slice_length.value
+        const slice_length_s:number = this.$signal_slice_length.value
         const selected_slices:SelectedSignalSlice[] = this.$selected_slices.value
 
         // dont subscribe, will call twice otherwise
@@ -363,13 +365,10 @@ export class MainContent extends preact.Component<MainContentProps> {
 
             const code: string = combine_mseed_codes(mseed.meta)
             const fs: number = mseed.meta.samplerate
-            const slice_length_samples: number = slice_length * fs
-            const slice_end_index: number =
-                selectedslice.start_index + slice_length_samples
-            const slice_start_time:Date = new Date(
-                mseed.meta.starttime.getTime() 
-                + (selectedslice.start_index / fs) * 1000
-            )
+            const slice_length_samples: number = slice_length_s * fs
+            const slice_start_time:Date = selectedslice.start_time
+            const slice_end_time:Date = 
+                new Date(slice_start_time.getTime() + slice_length_s * 1000)
 
             // check in the current $signal_plot_data if this item already exists
             const previous: MSEED_SignalPlotData|null = 
@@ -389,10 +388,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                     mseeds,
                     code,
                     slice_start_time,
-                    new Date(
-                        mseed.meta.starttime.getTime()
-                        + (slice_end_index / fs) * 1000
-                    ),
+                    slice_end_time,
                 )
             if(data instanceof Error){
                 console.error(data as Error)
@@ -459,9 +455,9 @@ export class MainContent extends preact.Component<MainContentProps> {
         if(this.$plots_loading.value)
             return
 
-        const new_slice = {
+        const new_slice:SelectedSignalSlice = {
             file_index:  selected.mseed_index, 
-            start_index: selected.start_index,
+            start_time: selected.start_time,
         }
         if(selected.shiftkey)
             this.$selected_slices.value = [
@@ -484,14 +480,40 @@ export class MainContent extends preact.Component<MainContentProps> {
             [...current_slices.slice(0, index), ...current_slices.slice(index+1)]
     }
 
+    $selected_slices_for_heatmap: Readonly<Signal<SignalSliceForHeatmap[]>> = 
+    signals.computed( () => {
+        const selectedslices:SelectedSignalSlice[] = this.$selected_slices.value
+        const slice_length_s:number = this.$signal_slice_length.value
+        const mseeds:MSeedMetadata[] = this.$mseed_meta.value
 
-    // $modulation_power_spectrum_data:
-    //     Signal<MSEED_ModulationPowerSpectrumData|null> = new Signal(null)
+        const output: SignalSliceForHeatmap[] = []
+
+        for(const selectedslice of selectedslices) {
+            const mseed: MSeedMetadata|undefined =
+                mseeds[selectedslice.file_index]
+            if(mseed == undefined) {
+                console.error(
+                    `No mseed file at index ${selectedslice.file_index}`
+                )
+                continue
+            }
+
+            const slice_end_time:Date = 
+                new Date(selectedslice.start_time.getTime() + slice_length_s * 1000)
+            
+            output.push({
+                mseed_index: selectedslice.file_index,
+                start_time:  selectedslice.start_time,
+                end_time:    slice_end_time,
+            })
+        }
+        return output
+    })
 
 }
 
 
-type SelectedSignalSlice = {file_index:number, start_index:number};
+type SelectedSignalSlice = {file_index:number, start_time:Date};
 
 
 /** Check if a station has matching MSEED meta. */

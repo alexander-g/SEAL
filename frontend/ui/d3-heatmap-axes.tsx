@@ -95,7 +95,7 @@ export class Axes extends preact.Component<{
         
         const d3_y_axis: d3.Axis<d3.NumberValue> = 
             d3.axisLeft(zy)
-            .tickValues(this.#resolve_y_axis_tick_values(rows, y_axis_tick_values))
+            .tickValues(y_axis_tick_values ?? d3.ticks(0, rows, 5))
             .tickFormat((value) =>
                 this.#format_y_axis_value(y_axis, Number(value))
             )
@@ -150,16 +150,6 @@ export class Axes extends preact.Component<{
 
         const tick_label:string|undefined = y_axis[tick_index]
         return tick_label ?? ''
-    }
-
-    #resolve_y_axis_tick_values(
-        rows:number,
-        y_axis_tick_values:number[]|undefined,
-    ): number[] {
-        if(y_axis_tick_values != undefined)
-            return y_axis_tick_values
-
-        return d3.ticks(0, rows, 5)
     }
 }
 
