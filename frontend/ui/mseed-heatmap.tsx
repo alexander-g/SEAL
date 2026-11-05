@@ -10,10 +10,6 @@ import { tremorwasm }             from "../lib/file-input.ts";
 import { WorkerPool }             from "../lib/workerpool.ts"
 import { type Station }           from "../lib/station-xml.ts";
 import { 
-    find_exact, 
-    find_last_below 
-} from "../lib/util.ts"
-import { 
     D3Heatmap,
     type OnClickItem as D3OnClickitem,
 } from "../ui/d3-heatmap.tsx"
@@ -31,6 +27,7 @@ import {
 } from "../ui/d3-heatmap.tsx"
 
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
+import { MSEED_SelectionOverlays } from './mseed-heatmap-overlays.tsx'
 
 import { range } from 'd3';
 
@@ -125,7 +122,7 @@ export class MSEED_Heatmap extends preact.Component<{
                     $heatmap_overlays      = {this.$heatmap_overlays}
                     enable_hover           = {true}
                     enable_zoom            = {true}
-                    ref                    = {this.d3heatmap_ref}
+                    ref                    = {(ref) => this.$d3heatmap.value = ref}
                 />
             </SettingsContainer>
         </ContainerWithOverlay>
@@ -317,66 +314,25 @@ export class MSEED_Heatmap extends preact.Component<{
 
     /** Transforming the input $selected_slices to JSX overlays on the heatmap */
     $heatmap_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
-        // subscriptions first
-        const x_axis:Date[]   = this.$x_axis.value
-        const y_axis:string[] = this.$y_axis.value
-        const mseeds: MSeedMetadata[] = this.props.$mseed_meta.value
-        const slices:DataSignalSlice[]|undefined = 
-            this.props.$selected_signal_slices?.value
-
-        if(slices == undefined)
+        if(this.$d3heatmap.value == null)
             return []
-        if(this.d3heatmap_ref.current == null)
+        if(this.props.$selected_signal_slices == undefined)
             return []
-
-        const _subscribed_but_not_used:unknown = 
-            this.d3heatmap_ref.current.$plot_dimensions.value;
-
-        const item_size:{width:number, height:number} = 
-            this.d3heatmap_ref.current.$item_size.peek()
-        // also not subscribing
-        const rows:number = this.d3heatmap_ref.current.$n_rows.peek()
-        const x_axis_timestamps:number[] = x_axis.map(Number)
 
         const output:JSX.Element[] = []
-        for(const slice of  slices) {
-            // slice.end_time
-
-            const item:MSeedMetadata|undefined = mseeds[slice.mseed_index]
-            if(item == undefined)
-                continue
-
-            const code:string = combine_mseed_codes(item)
-            const item_y:number|null = find_exact(y_axis, code)
-            if(item_y == null)
-                continue
-
-            const item_x0:number|null = 
-                find_last_below(x_axis_timestamps, Number(slice.start_time))
-            const item_x1:number|null = 
-                find_last_below(x_axis_timestamps, Number(slice.end_time))
-            if(item_x0 == null || item_x1 == null)
-                continue
-
-            const x:number = item_size.width * (item_x0 + 1);
-            const y:number = item_size.height * (rows - 1 - item_y)
-            const w:number = Math.max(1, (item_x1 - item_x0)) * item_size.width
-
-            output.push(
-                <rect 
-                    x              = {x} 
-                    y              = {y} 
-                    width          = {w} 
-                    height         = {item_size.height} 
-                    fill           = "#f0f0f0"
-                    fill-opacity   = "0.3"
-                    stroke         = "none"
-                    pointer-events = "none"
-                />
-            )
-        }
+        output.push(
+            <MSEED_SelectionOverlays
+                $x_axis    = {this.$x_axis}
+                $y_axis    = {this.$y_axis}
+                $mseeds    = {this.props.$mseed_meta}
+                $item_size = {this.$d3heatmap.value.$item_size}
+                $slices    = {this.props.$selected_signal_slices}
+                $n_rows    = {this.$d3heatmap.value.$n_rows}
+            />
+        )
         return output
     } )
+
 
     /** Called when user hovers on a pixel in the heatmap */
     on_heatmap_hover = (position:HoverCallbackPosition|null) => {
@@ -628,7 +584,7 @@ export class MSEED_Heatmap extends preact.Component<{
         return all_items;
     }
 
-    d3heatmap_ref: preact.RefObject<D3Heatmap> = preact.createRef()
+    $d3heatmap: Signal<D3Heatmap|null> = new Signal(null)
 }
 
 export type DataSignalSlice = {mseed_index:number, start_time:Date, end_time:Date};
