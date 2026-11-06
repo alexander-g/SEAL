@@ -27,7 +27,11 @@ import {
 } from "../ui/d3-heatmap.tsx"
 
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
-import { MSEED_SelectionOverlays } from './mseed-heatmap-overlays.tsx'
+import {
+    HoverMarker,
+    HoverOverlay,
+    MSEED_SelectionOverlays,
+} from './mseed-heatmap-overlays.tsx'
 
 import { range } from 'd3';
 
@@ -120,7 +124,7 @@ export class MSEED_Heatmap extends preact.Component<{
                     y_axis_label_formatter = {this.format_station_axis_label}
                     colormap               = 'magma'
                     $heatmap_overlays      = {this.$heatmap_overlays}
-                    enable_hover           = {true}
+                    $plot_overlays         = {this.$plot_overlays}
                     enable_zoom            = {true}
                     ref                    = {(ref) => this.$d3heatmap.value = ref}
                 />
@@ -312,30 +316,56 @@ export class MSEED_Heatmap extends preact.Component<{
         return output;
     } )
 
+    $hover_position: Signal<HoverCallbackPosition|null> = new Signal(null)
+
     /** Transforming the input $selected_slices to JSX overlays on the heatmap */
     $heatmap_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
         if(this.$d3heatmap.value == null)
             return []
-        if(this.props.$selected_signal_slices == undefined)
-            return []
 
         const output:JSX.Element[] = []
         output.push(
-            <MSEED_SelectionOverlays
-                $x_axis    = {this.$x_axis}
-                $y_axis    = {this.$y_axis}
-                $mseeds    = {this.props.$mseed_meta}
-                $item_size = {this.$d3heatmap.value.$item_size}
-                $slices    = {this.props.$selected_signal_slices}
-                $n_rows    = {this.$d3heatmap.value.$n_rows}
+            <HoverMarker
+                $position  = {this.$hover_position}
+                $dataitems = {this.$heatmap_pixels}
+                $plotsize  = {this.$d3heatmap.value.$plot_dimensions}
+                $rowscols  = {this.$d3heatmap.value.$rowscols}
             />
         )
+
+        if(this.props.$selected_signal_slices != undefined) {
+            output.push(
+                <MSEED_SelectionOverlays
+                    $x_axis    = {this.$x_axis}
+                    $y_axis    = {this.$y_axis}
+                    $mseeds    = {this.props.$mseed_meta}
+                    $item_size = {this.$d3heatmap.value.$item_size}
+                    $slices    = {this.props.$selected_signal_slices}
+                    $n_rows    = {this.$d3heatmap.value.$n_rows}
+                />
+            )
+        }
         return output
+    } )
+
+    $plot_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
+        if(this.$d3heatmap.value == null)
+            return []
+
+        return [
+            <HoverOverlay 
+                $position = {this.$hover_position} 
+                $x_axis   = {this.$x_axis}
+                $y_axis   = {this.$y_axis}
+                key       = {null} // for typescript
+            />
+        ]
     } )
 
 
     /** Called when user hovers on a pixel in the heatmap */
     on_heatmap_hover = (position:HoverCallbackPosition|null) => {
+        this.$hover_position.value = position
         if(position == null) {
             this.props.on_mseed_hover?.(null)
             this.props.on_events_hover?.([])

@@ -267,7 +267,6 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                         on_click     = {() => {}}
                         $title       = {inputsignals.$title}
                         y_axis_label = {inputsignals.$y_axis_label}
-                        enable_hover = {false}
                         enable_zoom  = {false}
                         downsample   = 'maxpool'
                     />

@@ -101,8 +101,6 @@ Deno.test('compute_hover_position_from_mouse returns hover details', () => {
         my: 10,
         root_x: 100.2,
         root_y: 220.9,
-        x_axis: [1000, 2000],
-        y_axis: ['row-a'],
         rows_cols: { cols: 2, rows: 1 },
         plotsize: {
             width: 100,
@@ -115,20 +113,16 @@ Deno.test('compute_hover_position_from_mouse returns hover details', () => {
     assert(hover.x == 1)
     assert(hover.y == 0)
     assert(hover.item_index == 0)
-    assert(hover.data_label == '')
     assert(hover.overlay_x == 112)
     assert(hover.overlay_y == 232)
-    assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(hover.x_label))
 })
 
-Deno.test('compute_hover_position_from_mouse returns no data label for empty cell', () => {
+Deno.test('compute_hover_position_from_mouse returns null item_index for empty cell', () => {
     const hover = compute_hover_position_from_mouse({
         mx: 10,
         my: 10,
         root_x: 0,
         root_y: 0,
-        x_axis: [1000, 2000],
-        y_axis: ['row-a'],
         rows_cols: { cols: 2, rows: 1 },
         plotsize: {
             width: 100,
@@ -139,5 +133,4 @@ Deno.test('compute_hover_position_from_mouse returns no data label for empty cel
 
     assert(hover != null)
     assert(hover.item_index == null)
-    assert(hover.data_label == 'no data')
 })

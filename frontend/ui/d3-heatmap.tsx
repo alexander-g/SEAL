@@ -1,5 +1,4 @@
 import { preact, Signal, signals, JSX } from "../dep.ts"
-import { strftime_ISO8601_datetime } from "../lib/util.ts";
 
 import * as d3 from "d3";
 import {
@@ -25,7 +24,7 @@ export type DataItem = {
 const OFFSCREEN_CANVAS_MAX_SIDE:number = 65535
 
 /** Values returned to the external `on_hover()` callback */
-export type HoverCallbackPosition = Pick<HoverPosition, 'item_index' | 'x' | 'y'>
+export type HoverCallbackPosition = HoverPosition
 
 export type OnClickItem = {
     /** Which data item was clicked on */
@@ -55,6 +54,9 @@ export class D3Heatmap extends preact.Component<{
     /** Optional SVG elements on top of the heatmap (hidden when out of bounds) */
     $heatmap_overlays?: Readonly<Signal<JSX.Element[]>>
 
+    /** Optional SVG elements on top of the plot (visible when out of bounds) */
+    $plot_overlays?: Readonly<Signal<JSX.Element[]>>
+
     /** Called when user clicks on a valid item */
     on_click: (selected:OnClickItem) => void,
 
@@ -69,7 +71,6 @@ export class D3Heatmap extends preact.Component<{
     y_axis_label_formatter?: (index:number, y_axis:string[]) => string,
 
     enable_zoom?:  boolean,
-    enable_hover?: boolean,
 
     /** Downsampling method if height or width exceeds offscreencanvas limits.
      *  Default: `nearest` */
@@ -89,7 +90,6 @@ export class D3Heatmap extends preact.Component<{
 
     /** Size of the top element, including heatmap image, margins, axes labels etc */
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
-    private $hover_position: Signal<HoverPosition|null> = new Signal(null)
     private heatmap_image_url:string|null = null
 
 
@@ -173,16 +173,6 @@ export class D3Heatmap extends preact.Component<{
                                 $cols        = {this.$n_cols}
                             />
 
-                            {this.props.enable_hover
-                                ? <HoverMarker 
-                                    $position   = {this.$hover_position} 
-                                    $dataitems  = {this.props.$data}
-                                    $plotsize   = {this.$plot_dimensions}
-                                    $rowscols   = {this.$rowscols}
-                                />
-                                : null
-                            }
-
                             { this.props.$heatmap_overlays }
                         </g>
                     </g>
@@ -211,10 +201,8 @@ export class D3Heatmap extends preact.Component<{
                         text         = {this.props.y_axis_label}
                         $plot_height = {this.$plot_height}
                     />
-                    {this.props.enable_hover
-                        ? <HoverOverlay $position = {this.$hover_position} />
-                        : null
-                    }
+
+                    { this.props.$plot_overlays }
                 </g>
             </svg>
         </div>
@@ -421,26 +409,20 @@ export class D3Heatmap extends preact.Component<{
     }
 
     #svgimage_onmousemove:preact.MouseEventHandler<SVGImageElement> = (event) => {
-        if(!this.props.enable_hover)
+        if(!this.props.on_hover)
             return
         const [mx, my] = d3.pointer(event, this.svgimage_ref.current)
         const [root_x, root_y] = d3.pointer(event, this.root_ref.current)
         const position:HoverPosition|null = 
             this.#hover_position_from_mouse(mx, my, root_x, root_y)
-        this.$hover_position.value = position
         
-        this.props.on_hover?.(
-            position
-            ? {item_index: position.item_index, x:position.x, y:position.y} 
-            : null
-        )
+        this.props.on_hover(position)
     }
 
     #svgimage_onmouseleave:preact.MouseEventHandler<SVGImageElement> = () => {
-        if(!this.props.enable_hover)
+        if(!this.props.on_hover)
             return
-        this.$hover_position.value = null
-        this.props.on_hover?.(null)
+        this.props.on_hover(null)
     }
 
 
@@ -482,10 +464,6 @@ export class D3Heatmap extends preact.Component<{
             my,
             root_x,
             root_y,
-            x_axis: this.props.$x_axis.value.map( 
-                (i:number|Date) => typeof i == 'number'?  i : i.getTime() / 1000
-            ),
-            y_axis: this.props.$y_axis.value,
             rows_cols: this.$rowscols.value,
             plotsize: this.$plot_dimensions.value,
             item_index_by_coord: this.$coordinates_to_item_map.value,
@@ -501,82 +479,6 @@ export class D3Heatmap extends preact.Component<{
 
     private static next_clip_id:number = 0
     private clip_path_id:string = `heatmap-clip-${D3Heatmap.next_clip_id++}`
-}
-
-
-/** Show hover details in a fixed-size tooltip box */
-function HoverOverlay(props: {
-    $position: Readonly<Signal<HoverPosition | null>>,
-}): JSX.Element | null {
-    const hover:HoverPosition|null = props.$position.value
-    if(hover == null)
-        return null
-
-    return <g
-        transform = {`translate(${hover.overlay_x},${hover.overlay_y})`}
-        style = {{ pointerEvents: 'none', fontFamily:'sans' }}
-    >
-        <rect
-            x = '0'
-            y = '0'
-            width = '200'
-            height = '56'
-            fill = '#000000'
-            fill-opacity = '0.75'
-            stroke = '#ffffff'
-            stroke-opacity = '0.4'
-        />
-        <text x = '8' y = '17' fill = '#ffffff' font-size = '11'>
-            {`${hover.x_label}`}
-        </text>
-        <text x = '8' y = '33' fill = '#ffffff' font-size = '11'>
-            {`${hover.y_label}`}
-        </text>
-        <text x = '8' y = '49' fill = '#ffffff' font-size = '11'>
-            {hover.data_label}
-        </text>
-    </g>
-}
-
-
-
-/** Overlay of the size of one heatmap pixel at the current position of the cursor */
-function HoverMarker(props:{
-    $position:   Readonly<Signal<HoverPosition|null>>,
-    $plotsize:   Readonly<Signal<Size>>,
-    $dataitems:  Readonly<Signal<DataItem[]>>,
-    $rowscols:   Readonly<Signal<RowsCols|null>>
-}): JSX.Element|null {
-
-    // NOTE: subscribing to signals here before early exit returns
-    const {width, height}        = props.$plotsize.value;
-    const item_index:number|null = props.$position.value?.item_index ?? null
-    const data_items:DataItem[]  = props.$dataitems.value;
-    const colsrows:RowsCols|null = props.$rowscols.value
-
-    if(item_index == null || colsrows == null)
-        return null;
-
-    const item:DataItem|undefined = data_items[item_index];
-    if(item == undefined)
-        return null;
-
-    const item_width:number  = width / colsrows.cols;
-    const item_height:number = height / colsrows.rows;
-    
-    const x:number = item_width * item.x;
-    const y:number = item_height * (colsrows.rows - 1 - item.y)
-
-    return <rect
-        x            = {`${x}`}
-        y            = {`${y}`}
-        width        = {`${item_width}`}
-        height       = {`${item_height}`}
-        fill         = "#f0f0f0"
-        fill-opacity = "0.3"
-        stroke       = "none"
-        pointer-events = "none"
-    />
 }
 
 
@@ -613,15 +515,12 @@ export type RowsCols = {
     rows: number,
 }
 
-type HoverPosition = {
-    overlay_x: number,
-    overlay_y: number,
-    x_label: string,
-    y_label: string,
-    data_label: string,
+export type HoverPosition = {
+    overlay_x:  number,
+    overlay_y:  number,
     item_index: number | null,
-    x: number,
-    y: number,
+    x:          number,
+    y:          number,
 }
 
 type ZoomScales = {
@@ -737,8 +636,6 @@ export function compute_hover_position_from_mouse(props: {
     my:         number,
     root_x:     number,
     root_y:     number,
-    x_axis:     number[],
-    y_axis:     string[],
     rows_cols:  RowsCols | null,
     plotsize:   Size,
     item_index_by_coord: Map<string, number>,
@@ -756,17 +653,11 @@ export function compute_hover_position_from_mouse(props: {
     if(col < 0 || row < 0)
         return null
 
-    const x_seconds: number | undefined = props.x_axis[col]
-    const y_value: string | undefined = props.y_axis[row]
-    if(x_seconds == undefined || y_value == undefined)
-        return null
-
     const hover_item_index: number | null = get_item_index_at(
         props.item_index_by_coord,
         col,
         row,
     )
-    const data_label: string = (hover_item_index == null) ? 'no data' : ''
 
     const overlay_x: number = Math.max(0, Math.floor(props.root_x) + 12)
     const overlay_y: number = Math.max(0, Math.floor(props.root_y) + 12)
@@ -774,9 +665,6 @@ export function compute_hover_position_from_mouse(props: {
     return {
         overlay_x,
         overlay_y,
-        x_label: strftime_ISO8601_datetime(new Date(x_seconds * 1000)),
-        y_label: y_value,
-        data_label,
         item_index: hover_item_index,
         x: col,
         y: row,
