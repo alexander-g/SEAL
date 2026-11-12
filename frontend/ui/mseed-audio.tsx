@@ -12,7 +12,8 @@ export { prepare_seismic_signal_for_audio }
 
 
 export class MSEED_AudioPlayback extends preact.Component<{
-    $audiodata: Readonly<Signal<AudioWaveform | null>>
+    $audiodata:          Readonly<Signal<AudioWaveform | null>>
+    on_position_change?: (position_seconds: number) => void
 }> {
     render(): JSX.Element {
         return  (
@@ -21,7 +22,10 @@ export class MSEED_AudioPlayback extends preact.Component<{
             opacity     = {0.8}
             background  = "lightgray"
         >
-            <AudioPlaybackControls $audiodata={this.$processed_audiodata} />
+            <AudioPlaybackControls
+                $audiodata         = {this.$processed_audiodata}
+                on_position_change = {this.props.on_position_change}
+            />
         </ContainerWithOverlay>
         )
     }

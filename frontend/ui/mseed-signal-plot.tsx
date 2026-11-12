@@ -58,6 +58,9 @@ export class MSEED_SignalPlot extends preact.Component<{
 
     /** Shared hover timestamp synchronized across plots */
     $hover_time?: Signal<Date|null>;
+
+    /** Current audio playback timestamp */
+    $playback_time?: Readonly<Signal<Date|null>>;
 }> {
     render(): JSX.Element {
         return <>
@@ -190,16 +193,29 @@ export class MSEED_SignalPlot extends preact.Component<{
                 index == 0
                 || should_show_signal_plot_x_axis(this.props.$plot_data.value, index - 1)
 
-            return [
+            const overlays: JSX.Element[] = [
                 <SignalPlotTimeIndicatorOverlay
                     $hover_time  = {this.$hover_time}
                     $plot_data   = {$item}
                     $plot_width  = {d3plot.$plot_width}
                     $plot_height = {d3plot.$plot_height}
                     show_badge   = {show_badge}
-                    key          = {null}
+                    key          = 'hover-time'
                 />
             ]
+            if(index == 0 && this.props.$playback_time != undefined) {
+                overlays.push(
+                    <SignalPlotTimeIndicatorOverlay
+                        $hover_time  = {this.props.$playback_time}
+                        $plot_data   = {$item}
+                        $plot_width  = {d3plot.$plot_width}
+                        $plot_height = {d3plot.$plot_height}
+                        show_badge   = {false}
+                        key          = 'playback-time'
+                    />
+                )
+            }
+            return overlays
         })
         this.#cached_plot_overlay_signals[index] = signal
         return signal

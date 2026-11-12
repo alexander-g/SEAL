@@ -205,8 +205,10 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
 
         this.$speed.value = parsed
 
-        if(this.$is_playing.value)
+        if(this.$is_playing.value) {
+            this.update_position_from_audio_clock()
             this.restart_playback_at_current_position()
+        }
     }
 
     on_gain_input = (event:Event): void => {
@@ -387,7 +389,6 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
         if(waveform == null)
             return
 
-        this.update_position_from_audio_clock()
         const position_seconds:number = this.$position_seconds.value
         const start_result:void|Error =
             this.start_playback_from(waveform, position_seconds)

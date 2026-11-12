@@ -66,11 +66,12 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Signal',
                 element: 
                     <MSEED_SignalPlot
-                        $plot_data    = {this.$signal_plot_data}
-                        $loading      = {this.$plots_loading}
-                        $slice_length = {this.$signal_slice_length}
-                        $hover_time   = {this.$hover_time}
-                        on_remove     = {this.on_signal_remove}
+                        $plot_data     = {this.$signal_plot_data}
+                        $loading       = {this.$plots_loading}
+                        $slice_length  = {this.$signal_slice_length}
+                        $hover_time    = {this.$hover_time}
+                        $playback_time = {this.$playback_time}
+                        on_remove      = {this.on_signal_remove}
                     />
             },
             {
@@ -78,10 +79,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Spectrogram',
                 element:
                 <MSEED_Spectrogram
-                    $data         = {this.$spectrogram_plot_data}
-                    $loading      = {this.$plots_loading}
-                    $slice_length = {this.$signal_slice_length}
-                    $hover_time   = {this.$hover_time}
+                    $data          = {this.$spectrogram_plot_data}
+                    $loading       = {this.$plots_loading}
+                    $slice_length  = {this.$signal_slice_length}
+                    $hover_time    = {this.$hover_time}
+                    $playback_time = {this.$playback_time}
                 />
             },
             // {
@@ -131,7 +133,10 @@ export class MainContent extends preact.Component<MainContentProps> {
                         element: <SelectablePanelsRow
                             items = {panels}
                             bottom_left_element = {
-                                <MSEED_AudioPlayback $audiodata={this.$audiodata} />
+                                <MSEED_AudioPlayback
+                                    $audiodata         = {this.$audiodata}
+                                    on_position_change = {this.on_audio_position_change}
+                                />
                             }
                             initial_preference = {['plot', 'spectrogram', 'map']}
                         />,
@@ -257,6 +262,21 @@ export class MainContent extends preact.Component<MainContentProps> {
 
     /** Shared hover timestamp synchronized across heatmap, signal plots, and spectrograms */
     $hover_time: Signal<Date|null> = new Signal(null)
+
+    /** Current audio playback position in seconds relative to first selected slice */
+    $playback_position_seconds: Signal<number|null> = new Signal(null)
+
+    /** Current audio playback timestamp synchronized across signal plots and spectrograms */
+    $playback_time: Readonly<Signal<Date|null>> = signals.computed(() =>
+        compute_playback_time(
+            this.$selected_slices.value[0]?.start_time ?? null,
+            this.$playback_position_seconds.value,
+        )
+    )
+
+    on_audio_position_change = (position_seconds: number): void => {
+        this.$playback_position_seconds.value = position_seconds
+    }
 
     /** Called when the user hovers on a station marker in the map */
     on_marker_hover = (index:number|null) => {
@@ -507,6 +527,20 @@ export class MainContent extends preact.Component<MainContentProps> {
 
 
 type SelectedSignalSlice = {file_index:number, start_time:Date};
+
+
+/** Compute absolute playback Date from slice start time and relative seconds */
+export function compute_playback_time(
+    start_time:       Date | null,
+    position_seconds: number | null,
+): Date | null {
+    if(start_time == null || position_seconds == null)
+        return null
+    if(!Number.isFinite(position_seconds) || position_seconds < 0)
+        return null
+
+    return new Date(start_time.getTime() + position_seconds * 1000)
+}
 
 
 /** Check if a station has matching MSEED meta. */
