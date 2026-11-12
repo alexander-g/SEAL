@@ -434,15 +434,15 @@ export class MainContent extends preact.Component<MainContentProps> {
             //     fs:            mseed.meta.samplerate,
             //     code:          code,
             // }
-            this.$audiodata.value = {
-                data: await slice_and_prepare_seismic_signal_for_audio(
-                    data,
-                    mseed.meta.samplerate,
-                    selectedslice.start_index,
-                    slice_end_index
-                ),
-                samplerate: 8000,
-            }
+            // this.$audiodata.value = {
+            //     data: await slice_and_prepare_seismic_signal_for_audio(
+            //         data,
+            //         mseed.meta.samplerate,
+            //         selectedslice.start_index,
+            //         slice_end_index
+            //     ),
+            //     samplerate: 8000,
+            // }
         }
         } finally {
             this.$plots_loading.value = false
