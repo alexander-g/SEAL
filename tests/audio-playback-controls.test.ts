@@ -1,11 +1,16 @@
 import { assert } from 'asserts'
+import { Signal } from '../frontend/dep.ts'
 
 import {
+    type AudioWaveform,
     compute_playback_position_seconds,
     format_playback_position,
     get_position_status_text,
     parse_slider_number,
 } from '../frontend/ui/audio-playback-controls.tsx'
+import { MSEED_AudioPlayback } from '../frontend/ui/mseed-audio.tsx'
+import { ContainerWithOverlay } from '../frontend/ui/plot-image.tsx'
+import { WorkerPool } from '../frontend/lib/workerpool.ts'
 
 
 Deno.test('format_playback_position formats valid seconds', () => {
@@ -54,4 +59,36 @@ Deno.test('compute_playback_position_seconds returns error on time', () => {
     )
     assert(position instanceof Error)
 })
+
+Deno.test('MSEED_AudioPlayback renders ContainerWithOverlay and processes audio in worker', async () => {
+    WorkerPool.get_instance(3)
+
+    const $audiodata: Signal<AudioWaveform|null> = new Signal(null)
+    const component = new MSEED_AudioPlayback({ $audiodata })
+
+    const rendered = component.render()
+    assert(rendered.type === ContainerWithOverlay)
+    assert(rendered.props.$is_loading === component.$loading)
+    assert(!component.$loading.value)
+    assert(component.$processed_audiodata.value == null)
+
+    const signal: Float32Array = new Float32Array(100)
+    for(let i:number = 0; i < signal.length; i++)
+        signal[i] = Math.sin(2 * Math.PI * 5 * (i / 100))
+
+    $audiodata.value = { data: signal, samplerate: 100 }
+    assert(component.$loading.value)
+
+    while(component.$loading.value)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+
+    assert(!component.$loading.value)
+    const processed: AudioWaveform|null = component.$processed_audiodata.peek()
+    assert(processed != null)
+    assert(processed.samplerate == 8000)
+    assert(processed.data.length == 8000)
+
+    component.componentWillUnmount()
+})
+
 

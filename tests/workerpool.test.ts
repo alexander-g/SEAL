@@ -9,6 +9,9 @@ import {
     create_spectrogram_for_visualization_parallelized,
     type SpectrogramOutput,
 } from '../frontend/lib/signal-processing-visualization.ts'
+import {
+    prepare_seismic_signal_for_audio,
+} from '../frontend/lib/signal-processing.ts'
 
 
 
@@ -73,4 +76,50 @@ Deno.test('create_spectrogram_for_visualization_parallelized', async () => {
         await create_spectrogram_for_visualization_parallelized(signal.slice(0, 1), fs, i0, i1, /*chunksize = */ 10)
     assert(output_too_short instanceof Error)
 })
+
+
+Deno.test('prepare_seismic_signal_for_audio resamples and normalizes signal', async () => {
+    const pool = WorkerPool.get_instance(3)
+
+    const fs: number       = 100
+    const f_target: number = 8000
+    const signal: Float32Array = new Float32Array(100)
+    for(let i:number = 0; i < signal.length; i++)
+        signal[i] = Math.sin(2 * Math.PI * 5 * (i / fs)) * 10 + 5
+
+    const worker_result: Float32Array|Error =
+        await (await pool.prepare_seismic_signal_for_audio(signal, fs, f_target)).promise
+    assert(!(worker_result instanceof Error))
+    assert(worker_result.length == 8000)
+
+    const direct_result: Float32Array =
+        prepare_seismic_signal_for_audio(signal, fs, f_target)
+    assert(worker_result.length == direct_result.length)
+    for(let i:number = 0; i < worker_result.length; i++)
+        assert(Math.abs(worker_result[i]! - direct_result[i]!) < 1e-6)
+})
+
+
+Deno.test('prepare_seismic_signal_for_audio returns empty array when resampled length < 512', async () => {
+    const pool = WorkerPool.get_instance(3)
+
+    const signal: Float32Array = new Float32Array([1, 2, 3, 4])
+    const worker_result: Float32Array|Error =
+        await (await pool.prepare_seismic_signal_for_audio(signal, 1000, 8000)).promise
+    assert(!(worker_result instanceof Error))
+    assert(worker_result.length == 0)
+})
+
+
+Deno.test('prepare_seismic_signal_for_audio handles short signals with length < 2', async () => {
+    const pool = WorkerPool.get_instance(3)
+
+    const single_sample: Float32Array = new Float32Array([42])
+    const worker_result: Float32Array|Error =
+        await (await pool.prepare_seismic_signal_for_audio(single_sample, 100, 8000)).promise
+    assert(!(worker_result instanceof Error))
+    assert(worker_result.length == 1)
+    assert(worker_result[0] == 42)
+})
+
 

@@ -152,7 +152,7 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
     $is_playing: Signal<boolean> = new Signal(false)
     
     /** Current playback speed factor */
-    $speed: Signal<number> = new Signal(1)
+    $speed: Signal<number> = new Signal(8)
     
     /** Current gain factor */
     $gain:  Signal<number> = new Signal(1)

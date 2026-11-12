@@ -48,6 +48,11 @@ type ContainerWithOverlayProps = {
      *  Won't show if not provided. */
     uninitialized_message?: string;
 
+    /** Overlay opacity */
+    opacity?:    number;
+    /** Overlay color */
+    background?: string;
+
     children: preact.ComponentChildren;
 }
 
@@ -60,7 +65,11 @@ export class ContainerWithOverlay extends preact.Component<ContainerWithOverlayP
         return <div class='container' style={{position:'relative', width:'100%'}}>
             { this.props.children }
 
-            <OverlayDiv $visible={this.$overlay_on}>
+            <OverlayDiv 
+                $visible   = {this.$overlay_on} 
+                background = {this.props.background} 
+                opacity    = {this.props.opacity}
+            >
                 { this.$overlay_message.value }
             </OverlayDiv>
         </div>

@@ -93,6 +93,22 @@ export class WorkerPool {
         return this.enqueue_task<SpectrogramOutput>(task)
     }
 
+    prepare_seismic_signal_for_audio(
+        signal:   Float32Array,
+        fs:       number,
+        f_target: number = 8000,
+    ): Promise<{promise: Promise<Float32Array|Error>}> {
+        const task_id: number = this.next_id++
+        const task: Task = {
+            type: 'prepare-audio',
+            signal,
+            fs,
+            f_target,
+            task_id,
+        }
+        return this.enqueue_task<Float32Array>(task)
+    }
+
     enqueue_task<T>(task:Task): Promise<{promise: Promise<T|Error>}> {
         return new Promise((promise_resolve) => {
             const result_promise: PromiseWithResolve<T|Error> =
@@ -135,6 +151,9 @@ export class WorkerPool {
         } else if(message.type == 'compute-spectrogram') {
             if(job.task.type == 'compute-spectrogram')
                 job.resolve_result(message.spectrogram)
+        } else if(message.type == 'prepare-audio') {
+            if(job.task.type == 'prepare-audio')
+                job.resolve_result(message.signal)
         } else
             console.error('Received unknown worker result: ', message)
 
