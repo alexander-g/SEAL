@@ -8,6 +8,11 @@ import type {
     RowsCols,
     Size,
 } from './d3-heatmap.tsx'
+import { marker_column_position } from './d3-heatmap-markers.tsx'
+import {
+    compute_x_coordinate_for_time,
+    type SignalPlotData,
+} from './d3-signal-plot.tsx'
 
 import {
     find_exact,
@@ -167,6 +172,144 @@ export function HoverMarker(props:{
         fill-opacity = "0.3"
         stroke       = "none"
         pointer-events = "none"
+    />
+}
+
+
+/** Map a timestamp to an x coordinate within a heatmap plot, or null if out of bounds */
+export function compute_heatmap_x_for_time(
+    time:       Date | null,
+    x_axis:     Date[] | number[],
+    plot_width: number,
+    zoom_k_x:   number = 1,
+    zoom_tx:    number = 0,
+): number | null {
+    if(time == null || x_axis.length < 2 || plot_width <= 0)
+        return null
+
+    const x_seconds: number[] = x_axis.map(
+        (v: Date | number) => typeof v == 'number' ? v : v.getTime() / 1000
+    )
+    const col: number | null = marker_column_position(
+        time.getTime() / 1000,
+        x_seconds,
+        x_axis.length,
+    )
+    if(col == null)
+        return null
+
+    const base_x: number = (col / x_axis.length) * plot_width
+    const x: number = base_x * zoom_k_x + zoom_tx
+    if(!Number.isFinite(x) || x < 0 || x > plot_width)
+        return null
+
+    return x
+}
+
+
+/** Vertical cursor line and datetime badge at a given x coordinate */
+export function XAxisTimeIndicator(props: {
+    x:           number,
+    time:        Date,
+    plot_width:  number,
+    plot_height: number,
+}): JSX.Element | null {
+    if(props.plot_width <= 0 || props.plot_height <= 0)
+        return null
+
+    const label: string = strftime_ISO8601_datetime(props.time)
+    const box_w: number = 136
+    const box_h: number = 18
+    const box_x: number = Math.max(
+        0,
+        Math.min(props.x - box_w / 2, Math.max(0, props.plot_width - box_w)),
+    )
+
+    return <g style={{ pointerEvents: 'none', fontFamily: 'sans-serif' }}>
+        <line
+            x1             = {props.x}
+            y1             = {0}
+            x2             = {props.x}
+            y2             = {props.plot_height}
+            stroke         = '#f57c00'
+            stroke-width   = '1.5'
+            stroke-opacity = '0.50'
+        />
+        <rect
+            x              = {box_x}
+            y              = {0}
+            width          = {box_w}
+            height         = {box_h}
+            fill           = '#000000'
+            fill-opacity   = '0.75'
+            stroke         = '#ffffff'
+            stroke-opacity = '0.4'
+        />
+        <text
+            x           = {box_x + box_w / 2}
+            y           = {13}
+            text-anchor = 'middle'
+            fill        = '#ffffff'
+            font-size   = '11'
+        >
+            {label}
+        </text>
+    </g>
+}
+
+
+/** Synchronized x-axis hover time indicator for a D3Heatmap */
+export function HeatmapTimeIndicatorOverlay(props: {
+    $hover_time:      Readonly<Signal<Date | null>>,
+    $x_axis:          Readonly<Signal<Date[] | number[]>>,
+    $plot_size:       Readonly<Signal<Size>>,
+    $zoom_transform?: Readonly<Signal<{ k: number, x: number }>>,
+}): JSX.Element | null {
+    const time: Date | null                       = props.$hover_time.value
+    const x_axis: Date[] | number[]               = props.$x_axis.value
+    const size: Size                              = props.$plot_size.value
+    const zoom: { k: number, x: number } | null   = props.$zoom_transform?.value ?? null
+
+    const x: number | null = compute_heatmap_x_for_time(
+        time,
+        x_axis,
+        size.width,
+        zoom?.k ?? 1,
+        zoom?.x ?? 0,
+    )
+    if(x == null || time == null)
+        return null
+
+    return <XAxisTimeIndicator
+        x           = {x}
+        time        = {time}
+        plot_width  = {size.width}
+        plot_height = {size.height}
+    />
+}
+
+
+/** Synchronized x-axis hover time indicator for a D3SignalPlot */
+export function SignalPlotTimeIndicatorOverlay(props: {
+    $hover_time:  Readonly<Signal<Date | null>>,
+    $plot_data:   Readonly<Signal<SignalPlotData | null>>,
+    $plot_width:  Readonly<Signal<number>>,
+    $plot_height: Readonly<Signal<number>>,
+}): JSX.Element | null {
+    const time: Date | null               = props.$hover_time.value
+    const plot_data: SignalPlotData | null = props.$plot_data.value
+    const width: number                   = props.$plot_width.value
+    const height: number                  = props.$plot_height.value
+
+    const x: number | null = compute_x_coordinate_for_time(time, plot_data, width)
+    if(x == null || time == null)
+        return null
+
+    return <XAxisTimeIndicator
+        x           = {x}
+        time        = {time}
+        plot_width  = {width}
+        plot_height = {height}
     />
 }
 

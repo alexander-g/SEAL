@@ -254,7 +254,7 @@ export class D3Heatmap extends preact.Component<{
 
 
     /** The currently active D3 zoom/translation state */
-    private $zoom_transform:Signal<d3.ZoomTransform> = new Signal(
+    readonly $zoom_transform:Signal<d3.ZoomTransform> = new Signal(
         new d3.ZoomTransform( /*k = */ 1, /*x = */  0, /*y = */  0 )
     )
 

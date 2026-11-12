@@ -28,6 +28,7 @@ import {
 
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 import {
+    HeatmapTimeIndicatorOverlay,
     HoverMarker,
     HoverOverlay,
     MSEED_SelectionOverlays,
@@ -101,6 +102,9 @@ export class MSEED_Heatmap extends preact.Component<{
 
     /** The currently visible signals in the signal plot and spectrogram */
     $selected_signal_slices?: Readonly<Signal<DataSignalSlice[]>>
+
+    /** Shared hover timestamp synchronized across plots */
+    $hover_time?: Signal<Date|null>
 }> {
     render(): JSX.Element {
         return <>
@@ -317,6 +321,10 @@ export class MSEED_Heatmap extends preact.Component<{
     } )
 
     $hover_position: Signal<HoverCallbackPosition|null> = new Signal(null)
+    /** Current x-axis value that the user hovers on. 
+     *  Either in this plot or in another one. */
+    readonly $hover_time: Signal<Date|null> = 
+        this.props.$hover_time ?? new Signal(null)
 
     /** Transforming the input $selected_slices to JSX overlays on the heatmap */
     $heatmap_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
@@ -348,17 +356,29 @@ export class MSEED_Heatmap extends preact.Component<{
         return output
     } )
 
+    /** Hover time from external plots only (hidden while hovering this heatmap) */
+    readonly $external_hover_time: Readonly<Signal<Date|null>> = signals.computed(
+        () => this.$hover_position.value != null ? null : this.$hover_time.value
+    )
+
     $plot_overlays: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
         if(this.$d3heatmap.value == null)
             return []
 
         return [
+            <HeatmapTimeIndicatorOverlay
+                $hover_time     = {this.$external_hover_time}
+                $x_axis         = {this.$x_axis}
+                $plot_size      = {this.$d3heatmap.value.$plot_dimensions}
+                $zoom_transform = {this.$d3heatmap.value.$zoom_transform}
+                key             = 'time-indicator'
+            />,
             <HoverOverlay 
                 $position = {this.$hover_position} 
                 $x_axis   = {this.$x_axis}
                 $y_axis   = {this.$y_axis}
-                key       = {null} // for typescript
-            />
+                key       = 'hover-overlay'
+            />,
         ]
     } )
 
@@ -367,6 +387,7 @@ export class MSEED_Heatmap extends preact.Component<{
     on_heatmap_hover = (position:HoverCallbackPosition|null) => {
         this.$hover_position.value = position
         if(position == null) {
+            this.$hover_time.value = null
             this.props.on_mseed_hover?.(null)
             this.props.on_events_hover?.([])
             return;
@@ -385,9 +406,11 @@ export class MSEED_Heatmap extends preact.Component<{
 
         const time_value_at_hover:Date|undefined = this.$x_axis.value[position.x]
         if(time_value_at_hover == undefined) {
+            this.$hover_time.value = null
             console.error(`No time found at hover position x=${position.x}`)
             return;
         }
+        this.$hover_time.value = time_value_at_hover
 
         const event_indices:number[] = 
             this.$itemized_events.value

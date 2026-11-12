@@ -29,8 +29,20 @@ export type SignalPlotData = {
     y_domain?:      [number, number],
 }
 
+
+export type HoverPosition = {
+    x: Date,
+    y: number,
+}
+
 export type D3SignalPlotProps = {
     $plot_data: Readonly<Signal<SignalPlotData | null>>
+
+    /** Optional SVG elements on top of the plot (hidden when out of bounds) */
+    $plot_overlays?: Readonly<Signal<JSX.Element[]>>
+
+    /** Called when user hovers over the plot, or null when the mouse leaves it */
+    on_plot_hover?:  (p:HoverPosition|null) => void
 }
 
 
@@ -78,6 +90,16 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                             stroke = '#1f6fb2'
                             stroke-width = '1.5'
                         />
+
+                        <rect
+                            x            = '0'
+                            y            = '0'
+                            width        = {this.$plot_width}
+                            height       = {this.$plot_height}
+                            fill         = 'transparent'
+                            onMouseMove  = {this.#on_plot_mousemove}
+                            onMouseLeave = {this.#on_plot_mouseleave}
+                        />
                     </g>
 
                     <g ref = {this.yaxis_ref} />
@@ -102,6 +124,8 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                         text         = {this.$y_axis_label}
                         $plot_height = {this.$plot_height}
                     />
+
+                    { this.props.$plot_overlays }
                 </g>
             </svg>
         </div>
@@ -144,6 +168,29 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
         }
     }
 
+    #on_plot_mousemove: preact.MouseEventHandler<SVGRectElement> = (event) => {
+        if(!this.props.on_plot_hover || this.root_ref.current == null)
+            return
+        const [mx, my]: [number, number] = d3.pointer(
+            event,
+            this.root_ref.current,
+        )
+        const dimensions: SVGPlotDimensions = this.$dimensions.value
+        const position: HoverPosition | null =
+            compute_hover_position_from_mouse(
+                mx,
+                my,
+                dimensions.plot_width,
+                dimensions.plot_height,
+                this.props.$plot_data.value,
+            )
+        this.props.on_plot_hover(position)
+    }
+
+    #on_plot_mouseleave: preact.MouseEventHandler<SVGRectElement> = () => {
+        this.props.on_plot_hover?.(null)
+    }
+
 
     #update_plot(): void {
         const dimensions: SVGPlotDimensions = this.$dimensions.value
@@ -160,34 +207,21 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             return
         }
 
-        const data: Float32Array = plot_data.data
-        const x_domain: [Date, Date]|Error = 
-            plot_data.x_domain 
-            ?? compute_time_domain(
-                plot_data.start_time, 
-                0, 
-                data.length, 
-                plot_data.sample_rate_hz
-            )
-        const y_domain: [number, number] | Error = 
-            plot_data.y_domain ?? compute_signal_y_domain(data, data)
-        if(x_domain instanceof Error || y_domain instanceof Error) {
-            console.error('update_plot: domain error', x_domain, y_domain)
+        const scales: PlotScales | Error = compute_plot_scales(
+            plot_data,
+            dimensions.plot_width,
+            dimensions.plot_height,
+        )
+        if(scales instanceof Error) {
+            console.error('update_plot: domain error', scales)
             this.#clear_plot()
             return
         }
+        const { x_scale, y_scale } = scales
 
+        const data: Float32Array = plot_data.data
         const start_ms: number = plot_data.start_time.getTime()
         const sample_period_ms: number = (1000 / plot_data.sample_rate_hz)
-
-        const x_scale: d3.ScaleTime<number, number> = d3.scaleTime()
-            .domain(x_domain)
-            .range([0, dimensions.plot_width])
-
-        const y_scale: d3.ScaleLinear<number, number> = d3.scaleLinear()
-            .domain(y_domain)
-            .range([dimensions.plot_height, 0])
-            .nice()
 
         const downsampled: DownsampledPoint[] | Error =
             downsample_min_max(data, Math.floor(dimensions.plot_width * 1.5))
@@ -380,6 +414,96 @@ export function compute_time_domain(
         start_time.getTime() + ((stop_index - 1) / sample_rate_hz) * 1000
 
     return [new Date(start_ms), new Date(stop_ms)]
+}
+
+type PlotScales = {
+    x_scale: d3.ScaleTime<number, number>,
+    y_scale: d3.ScaleLinear<number, number>,
+}
+
+/** Build x and y D3 scales for the signal plot */
+function compute_plot_scales(
+    plot_data:   SignalPlotData,
+    plot_width:  number,
+    plot_height: number,
+): PlotScales | Error {
+    const data: Float32Array = plot_data.data
+    const x_domain: [Date, Date] | Error =
+        plot_data.x_domain
+        ?? compute_time_domain(
+            plot_data.start_time,
+            0,
+            data.length,
+            plot_data.sample_rate_hz,
+        )
+    if(x_domain instanceof Error)
+        return x_domain
+
+    const y_domain: [number, number] | Error =
+        plot_data.y_domain ?? compute_signal_y_domain(data, data)
+    if(y_domain instanceof Error)
+        return y_domain
+
+    const x_scale: d3.ScaleTime<number, number> = d3.scaleTime()
+        .domain(x_domain)
+        .range([0, plot_width])
+    const y_scale: d3.ScaleLinear<number, number> = d3.scaleLinear()
+        .domain(y_domain)
+        .range([plot_height, 0])
+        .nice()
+
+    return { x_scale, y_scale }
+}
+
+/** Map mouse coordinates within plot bounds to domain coordinates */
+export function compute_hover_position_from_mouse(
+    mx:          number,
+    my:          number,
+    plot_width:  number,
+    plot_height: number,
+    plot_data:   SignalPlotData | null,
+): HoverPosition | null {
+    if(plot_data == null || plot_width <= 0 || plot_height <= 0)
+        return null
+    if(mx < 0 || mx > plot_width || my < 0 || my > plot_height)
+        return null
+
+    const scales: PlotScales | Error = compute_plot_scales(
+        plot_data,
+        plot_width,
+        plot_height,
+    )
+    if(scales instanceof Error)
+        return null
+
+    return {
+        x: scales.x_scale.invert(mx),
+        y: scales.y_scale.invert(my),
+    }
+}
+
+/** Map a timestamp to an x coordinate within plot bounds, or null if out of bounds */
+export function compute_x_coordinate_for_time(
+    time:       Date | null,
+    plot_data:  SignalPlotData | null,
+    plot_width: number,
+): number | null {
+    if(time == null || plot_data == null || plot_width <= 0)
+        return null
+
+    const scales: PlotScales | Error = compute_plot_scales(
+        plot_data,
+        plot_width,
+        1,
+    )
+    if(scales instanceof Error)
+        return null
+
+    const x: number = scales.x_scale(time)
+    if(!Number.isFinite(x) || x < 0 || x > plot_width)
+        return null
+
+    return x
 }
 
 /** Compute y domain and enforce minimum range based on std(data) */

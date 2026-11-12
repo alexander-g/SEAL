@@ -79,6 +79,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                         $plot_data    = {this.$signal_plot_data}
                         $loading      = {this.$plots_loading}
                         $slice_length = {this.$signal_slice_length}
+                        $hover_time   = {this.$hover_time}
                         on_remove     = {this.on_signal_remove}
                     />
             },
@@ -87,9 +88,10 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Spectrogram',
                 element:
                 <MSEED_Spectrogram
-                    $data    = {this.$spectrogram_plot_data}
-                    $loading = {this.$plots_loading}
+                    $data         = {this.$spectrogram_plot_data}
+                    $loading      = {this.$plots_loading}
                     $slice_length = {this.$signal_slice_length}
+                    $hover_time   = {this.$hover_time}
                 />
             },
             // {
@@ -122,15 +124,16 @@ export class MainContent extends preact.Component<MainContentProps> {
                     {
                         key: 'heatmap',
                         element: <MSEED_Heatmap
-                            $mseed_meta          = {this.$mseed_meta}
-                            $mseeds              = {this.props.$mseeds}
-                            $inference           = {this.props.$inference}
-                            $events              = {this.props.$events}
-                            on_click             = {this.on_heatmap_item_select}
-                            on_mseed_hover       = {this.on_mseed_hover}
-                            on_events_hover      = {this.on_events_hover}
-                            $highlighted_station = {this.$highlighted_station}
+                            $mseed_meta             = {this.$mseed_meta}
+                            $mseeds                 = {this.props.$mseeds}
+                            $inference              = {this.props.$inference}
+                            $events                 = {this.props.$events}
+                            on_click                = {this.on_heatmap_item_select}
+                            on_mseed_hover          = {this.on_mseed_hover}
+                            on_events_hover         = {this.on_events_hover}
+                            $highlighted_station    = {this.$highlighted_station}
                             $selected_signal_slices = {this.$selected_slices_for_heatmap}
+                            $hover_time             = {this.$hover_time}
                         />,
                     },
                     {
@@ -261,6 +264,9 @@ export class MainContent extends preact.Component<MainContentProps> {
     /** The currently highlighted station, either in the map or heatmap */
     $highlighted_station:Signal<Station|null> = new Signal(null)
     $highlighted_station_index:Signal<number[]> = new Signal([])
+
+    /** Shared hover timestamp synchronized across heatmap, signal plots, and spectrograms */
+    $hover_time: Signal<Date|null> = new Signal(null)
 
     /** Called when the user hovers on a station marker in the map */
     on_marker_hover = (index:number|null) => {
