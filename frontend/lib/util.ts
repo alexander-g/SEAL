@@ -62,3 +62,11 @@ export function find_last_below(values:NumberArray, threshold:number): number|nu
     // none found
     return null;
 }
+
+export function find_exact(values:NumberArray|string[], v:number|string): number|null {
+    for(let i: number = 0; i < values.length; i++)
+        if(values[i]! == v)
+            return i;
+    // none found
+    return null;
+}

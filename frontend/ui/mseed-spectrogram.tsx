@@ -11,8 +11,13 @@ import {
     type SettingsAction,
 } from '../ui/component-settings.tsx'
 
-import { D3Heatmap, type DataItem as HeatmapDataItem } from './d3-heatmap.tsx'
+import {
+    D3Heatmap,
+    type DataItem as HeatmapDataItem,
+    type HoverCallbackPosition,
+} from './d3-heatmap.tsx'
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
+import { HeatmapTimeIndicatorOverlay } from './mseed-heatmap-overlays.tsx'
 
 import {
     find_first_above,
@@ -57,6 +62,9 @@ type MSEED_SpectrogramProps = {
     /** The length of the signal to be displayed in seconds. 
      *  Shared with other components. Both input and output. */
     $slice_length?: Signal<number>;
+
+    /** Shared hover timestamp synchronized across plots */
+    $hover_time?: Signal<Date|null>;
 }
 
 
@@ -247,35 +255,108 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     /** List of JSX elements to be rendered */
     $d3_heatmaps: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
         const d3_elements: JSX.Element[] = []
-        for(const index in this.$d3_inputs.value) {
+        for(const key in this.$d3_inputs.value) {
+            const index: number = Number(key)
             const inputsignals:D3InputSignals = 
-                this.#get_individual_d3_input_as_signal(Number(index))
+                this.#get_individual_d3_input_as_signal(index)
+            const $d3heatmap: Signal<D3Heatmap|null> =
+                this.#get_or_create_d3_heatmap_signalref(index)
+            const $overlays: Readonly<Signal<JSX.Element[]>> =
+                this.#overlays_for_plot(index)
             
             d3_elements.push(
                 // NOTE: this <div> is needed to constrain the height
                 <div
-                    key = {index}
+                    key   = {key}
                     style = {{
                         flex: '1 1 0',
                         minHeight: 0,
                     }}
                 >
                     <D3Heatmap 
-                        $data        = {inputsignals.pixels}
-                        $x_axis      = {inputsignals.t_axis}
-                        $y_axis      = {inputsignals.f_axis}
-                        on_click     = {() => {}}
-                        $title       = {inputsignals.$title}
-                        y_axis_label = {inputsignals.$y_axis_label}
-                        enable_hover = {false}
-                        enable_zoom  = {false}
-                        downsample   = 'maxpool'
+                        $data          = {inputsignals.pixels}
+                        $x_axis        = {inputsignals.t_axis}
+                        $y_axis        = {inputsignals.f_axis}
+                        on_click       = {() => {}}
+                        on_hover       = {
+                            (p:HoverCallbackPosition|null) => this.#on_heatmap_hover(index, p)
+                        }
+                        $plot_overlays = {$overlays}
+                        $title         = {inputsignals.$title}
+                        y_axis_label   = {inputsignals.$y_axis_label}
+                        show_x_axis    = {inputsignals.$show_x_axis}
+                        enable_zoom    = {false}
+                        downsample     = 'maxpool'
+                        ref            = {(ref: D3Heatmap|null) => { $d3heatmap.value = ref }}
                     />
                 </div>
             )
         }
         return d3_elements
     } )
+
+    /** Current x-axis value that the user hovers on. 
+     *  Either in this plot or in another one. */
+    readonly $hover_time: Signal<Date|null> = 
+        this.props.$hover_time ?? new Signal(null)
+
+    /** References to currently active d3 heatmap objects */
+    #d3_heatmap_signalrefs: Record<number, Signal<D3Heatmap|null>> = {}
+
+    #get_or_create_d3_heatmap_signalref(index:number): Signal<D3Heatmap|null> {
+        if(!(index in this.#d3_heatmap_signalrefs))
+            this.#d3_heatmap_signalrefs[index] = new Signal<D3Heatmap|null>(null)
+        return this.#d3_heatmap_signalrefs[index]!
+    }
+
+
+
+    /** Get or create a signals.computed() to JSX elements displayed on a plot */
+    #overlays_for_plot(index:number): Readonly<Signal<JSX.Element[]>> {
+        if(index in this.#cached_plot_overlay_signals)
+            return this.#cached_plot_overlay_signals[index]!
+
+        const inputsignals: D3InputSignals =
+            this.#get_individual_d3_input_as_signal(index)
+        const $d3heatmap: Signal<D3Heatmap|null> =
+            this.#get_or_create_d3_heatmap_signalref(index)
+
+        const signal: Readonly<Signal<JSX.Element[]>> = signals.computed(() => {
+            const d3heatmap: D3Heatmap | null = $d3heatmap.value
+            if(d3heatmap == null)
+                return []
+
+            const t_axes: (Date[] | null)[] = this.$d3_inputs.value.map(
+                item => item?.t_axis ?? null
+            )
+            const show_badge: boolean =
+                index == 0
+                || should_show_spectrogram_x_axis(t_axes, index - 1)
+
+            return [
+                <HeatmapTimeIndicatorOverlay
+                    $hover_time = {this.$hover_time}
+                    $x_axis     = {inputsignals.t_axis}
+                    $plot_size  = {d3heatmap.$plot_dimensions}
+                    show_badge  = {show_badge}
+                    key         = {null}
+                />
+            ]
+        })
+        this.#cached_plot_overlay_signals[index] = signal
+        return signal
+    }
+    #cached_plot_overlay_signals: Record<number, Readonly<Signal<JSX.Element[]>>> = {}
+
+    /** Called when user hovers over one of the spectrograms */
+    #on_heatmap_hover (index:number, position:HoverCallbackPosition|null): void {
+        if(position == null) {
+            this.$hover_time.value = null
+            return
+        }
+        const t_axis: Date[] = this.$d3_inputs.value[index]?.t_axis ?? []
+        this.$hover_time.value = t_axis[position.x] ?? null
+    }
 
     /** Create or return a cached signals.computed() to a specified 
      *  index within `$d3_inputs` */
@@ -321,7 +402,14 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 if(more_than_one_plot)
                     return code
                 return `Frequency (Hz)`
-            } )
+            } ),
+
+            $show_x_axis: signals.computed( () => {
+                const t_axes: (Date[] | null)[] = this.$d3_inputs.value.map(
+                    item => item?.t_axis ?? null
+                )
+                return should_show_spectrogram_x_axis(t_axes, index)
+            } ),
         }
         return this.#cached_individual_d3_input_signals[index]!
     }
@@ -347,6 +435,29 @@ type D3InputSignals = {
 } & {
     $title:        Readonly<Signal<string>>
     $y_axis_label: Readonly<Signal<string>>
+    $show_x_axis:  Readonly<Signal<boolean>>
+}
+
+
+/** Return true if the spectrogram at `index` should display its x-axis */
+export function should_show_spectrogram_x_axis(
+    t_axes: readonly (readonly Date[] | null)[],
+    index:  number,
+): boolean {
+    const current: readonly Date[] | null | undefined = t_axes[index]
+    if(current == null || current.length == 0)
+        return false
+
+    const next: readonly Date[] | null | undefined = t_axes[index + 1]
+    if(next == null || next.length == 0)
+        return true
+
+    const current_start: number = current[0]!.getTime()
+    const current_end: number   = current[current.length - 1]!.getTime()
+    const next_start: number    = next[0]!.getTime()
+    const next_end: number      = next[next.length - 1]!.getTime()
+
+    return current_start != next_start || current_end != next_end
 }
 
 

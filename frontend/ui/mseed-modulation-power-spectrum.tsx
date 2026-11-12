@@ -53,7 +53,6 @@ export class MSEED_ModulationPowerSpectrum
                     y_axis_label           = 'Spectral Modulation (1/Hz)'
                     x_axis_label           = 'Temporal Modulation (Hz)'
                     x_axis_label_formatter = {this.format_mps_axis_value}
-                    enable_hover           = {false}
                     enable_zoom            = {false}
                     colormap               = 'magma'
                 />

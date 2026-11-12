@@ -4,7 +4,7 @@ import * as d3 from "d3";
 
 import { compute_zoom_scales } from './d3-heatmap.tsx'
 import type {
-    SVGPlotDimensions,
+    Size,
     RowsCols,
 } from './d3-heatmap.tsx'
 import { strftime_ISO8601_datetime, strftime_ISO8601_time } from "../lib/util.ts";
@@ -13,7 +13,7 @@ import { strftime_ISO8601_datetime, strftime_ISO8601_time } from "../lib/util.ts
 
 export class Axes extends preact.Component<{
     /** Sizes of the SVG components */
-    $dimensions: Readonly<Signal<SVGPlotDimensions>>,
+    plot_size: Readonly<Signal<Size>>,
 
     /** Number of pixels along x and y axes in the data */
     $rowscols: Readonly<Signal<RowsCols|null>>,
@@ -29,6 +29,9 @@ export class Axes extends preact.Component<{
 
     /** Current zoom state */
     $zoom_transform: Readonly<Signal<d3.ZoomTransform>>,
+
+    /** Whether to display the x-axis */
+    $show_x_axis?: Readonly<Signal<boolean>>,
 
     /** Optional formatter for x axis labels */
     x_axis_label_formatter?: (value:number) => string,
@@ -56,39 +59,38 @@ export class Axes extends preact.Component<{
         const t:d3.ZoomTransform     = this.props.$zoom_transform.value
         const x_axis:number[]|Date[] = this.props.$x_axis.value
         const y_axis:string[]        = this.props.$y_axis.value
+        const show_x_axis:boolean    = this.props.$show_x_axis?.value ?? true
         const y_axis_tick_values:number[]|undefined =
             this.props.$y_axis_tick_values?.value
         const colsrows:RowsCols|null = this.props.$rowscols.value
         if(colsrows == null)
             return;
         const { cols, rows } = colsrows;
-
-        const dimensions:SVGPlotDimensions = this.props.$dimensions.value;
-        const w:number = dimensions.plot_width
-        const h:number = dimensions.plot_height
+        const plotsize:Size = this.props.plot_size.value;
 
         const { k_x, k_y } = compute_zoom_scales({
             transform: t,
             rows_cols: colsrows,
-            dimensions,
+            plot_size: plotsize,
         })
 
         const zx:d3.ScaleLinear<number,number> =
             new d3.ZoomTransform(k_x, t.x, t.y).rescaleX(
                 d3.scaleLinear()
                 .domain([0, cols])
-                .range([0, w])
+                .range([0, plotsize.width])
             )
         const zy:d3.ScaleLinear<number,number> =
             new d3.ZoomTransform(k_y, t.x, t.y).rescaleY(
                 d3.scaleLinear()
                 .domain([0, rows])
-                .range([h, 0])
+                .range([plotsize.height, 0])
             )
         
         
-        let d3_x_axis: d3.Axis<Date|d3.NumberValue>|null = 
-            create_d3_axis_for_dates_or_numbers(x_axis, zx)
+        const d3_x_axis: d3.Axis<Date|d3.NumberValue>|null = show_x_axis
+            ? create_d3_axis_for_dates_or_numbers(x_axis, zx)
+            : null
                 
         const x_tickvalues:Date[]|d3.NumberValue[] = d3_x_axis?.tickValues() ?? []
         d3_x_axis?.tickFormat(
@@ -98,7 +100,7 @@ export class Axes extends preact.Component<{
         
         const d3_y_axis: d3.Axis<d3.NumberValue> = 
             d3.axisLeft(zy)
-            .tickValues(this.#resolve_y_axis_tick_values(rows, y_axis_tick_values))
+            .tickValues(y_axis_tick_values ?? d3.ticks(0, rows, 5))
             .tickFormat((value) =>
                 this.#format_y_axis_value(y_axis, Number(value))
             )
@@ -107,6 +109,10 @@ export class Axes extends preact.Component<{
             d3.select(this.xaxis_ref.current)
                 // @ts-ignore this is correct 
                 .call(d3_x_axis);
+        else
+            d3.select(this.xaxis_ref.current)
+                .selectAll('*')
+                .remove();
         d3.select(this.yaxis_ref.current)
             // @ts-ignore this is correct 
             .call(d3_y_axis);
@@ -115,7 +121,7 @@ export class Axes extends preact.Component<{
 
 
     $x_axis_transform:Readonly<Signal<string>> = signals.computed(() =>
-        `translate(0,${this.props.$dimensions.value.plot_height})`
+        `translate(0,${this.props.plot_size.value.height})`
     )
 
     #format_x_axis_value(ticks:d3.NumberValue[]|Date[], tick_index:number): string {
@@ -153,16 +159,6 @@ export class Axes extends preact.Component<{
 
         const tick_label:string|undefined = y_axis[tick_index]
         return tick_label ?? ''
-    }
-
-    #resolve_y_axis_tick_values(
-        rows:number,
-        y_axis_tick_values:number[]|undefined,
-    ): number[] {
-        if(y_axis_tick_values != undefined)
-            return y_axis_tick_values
-
-        return d3.ticks(0, rows, 5)
     }
 }
 

@@ -1,7 +1,7 @@
 import {
-    create_item_index_by_coord,
+    build_item2index_map,
     compute_hover_position_from_mouse,
-    get_dimensions,
+    remove_margin_from_size,
     get_rows_cols,
     get_item_index_at,
     mouse_to_col,
@@ -19,15 +19,12 @@ import {
 import { assert } from 'asserts'
 
 Deno.test('get_dimensions computes plot area and clamps minimum', () => {
-    const dimensions = get_dimensions(
+    const dimensions = remove_margin_from_size(
         { width: 10, height: 5 },
         { top: 20, right: 5, bottom: 30, left: 60 },
     )
-
-    assert(dimensions.svg_width == 10)
-    assert(dimensions.svg_height == 5)
-    assert(dimensions.plot_width == 1)
-    assert(dimensions.plot_height == 1)
+    assert(dimensions.width == 1)
+    assert(dimensions.height == 1)
 })
 
 Deno.test('get_rows_cols derives grid extents from items', () => {
@@ -84,7 +81,7 @@ Deno.test('marker rect helpers build expected layer rectangles', () => {
 })
 
 Deno.test('item index map resolves item by coordinate', () => {
-    const item_index_by_coord = create_item_index_by_coord([
+    const item_index_by_coord = build_item2index_map([
         { x: 0, y: 0, color: 0.1 },
         { x: 3, y: 2, color: 0.9 },
     ])
@@ -95,7 +92,7 @@ Deno.test('item index map resolves item by coordinate', () => {
 })
 
 Deno.test('compute_hover_position_from_mouse returns hover details', () => {
-    const item_index_by_coord = create_item_index_by_coord([
+    const item_index_by_coord = build_item2index_map([
         { x: 1, y: 0, color: 1 },
     ])
 
@@ -104,14 +101,10 @@ Deno.test('compute_hover_position_from_mouse returns hover details', () => {
         my: 10,
         root_x: 100.2,
         root_y: 220.9,
-        x_axis: [1000, 2000],
-        y_axis: ['row-a'],
         rows_cols: { cols: 2, rows: 1 },
-        dimensions: {
-            svg_width: 200,
-            svg_height: 100,
-            plot_width: 100,
-            plot_height: 50,
+        plotsize: {
+            width: 100,
+            height: 50,
         },
         item_index_by_coord,
     })
@@ -120,31 +113,24 @@ Deno.test('compute_hover_position_from_mouse returns hover details', () => {
     assert(hover.x == 1)
     assert(hover.y == 0)
     assert(hover.item_index == 0)
-    assert(hover.data_label == '')
     assert(hover.overlay_x == 112)
     assert(hover.overlay_y == 232)
-    assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(hover.x_label))
 })
 
-Deno.test('compute_hover_position_from_mouse returns no data label for empty cell', () => {
+Deno.test('compute_hover_position_from_mouse returns null item_index for empty cell', () => {
     const hover = compute_hover_position_from_mouse({
         mx: 10,
         my: 10,
         root_x: 0,
         root_y: 0,
-        x_axis: [1000, 2000],
-        y_axis: ['row-a'],
         rows_cols: { cols: 2, rows: 1 },
-        dimensions: {
-            svg_width: 200,
-            svg_height: 100,
-            plot_width: 100,
-            plot_height: 50,
+        plotsize: {
+            width: 100,
+            height: 50,
         },
         item_index_by_coord: new Map(),
     })
 
     assert(hover != null)
     assert(hover.item_index == null)
-    assert(hover.data_label == 'no data')
 })

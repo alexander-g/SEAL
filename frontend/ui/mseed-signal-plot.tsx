@@ -10,6 +10,7 @@ import {
     D3SignalPlot, 
     compute_time_domain,
     type SignalPlotData,
+    type HoverPosition,
 } from "../ui/d3-signal-plot.tsx"
 import { ContainerWithOverlay } from "../ui/plot-image.tsx"
 import {
@@ -17,6 +18,7 @@ import {
     format_png_export_filename,
     trigger_file_download,
 } from './plot-export.ts'
+import { SignalPlotTimeIndicatorOverlay } from './mseed-heatmap-overlays.tsx'
 
 import type { Response }     from "../lib/station-xml.ts"
 import * as signalprocessing from "../lib/signal-processing.ts"
@@ -49,7 +51,13 @@ export class MSEED_SignalPlot extends preact.Component<{
     $slice_length?: Signal<number>;
 
     /** Called when user requests to remove a displayed signal */
-    on_remove?: (index:number) => void;
+    on_remove?: (plot_index:number) => void;
+
+    /** Called when user hovers over a signal plot */
+    on_hover?: (plot_index:number, p:HoverPosition|null) => void;
+
+    /** Shared hover timestamp synchronized across plots */
+    $hover_time?: Signal<Date|null>;
 }> {
     render(): JSX.Element {
         return <>
@@ -94,13 +102,14 @@ export class MSEED_SignalPlot extends preact.Component<{
 
         const processed_data:(SignalPlotDataWithCacheKey|null)[] = []
         for(const i in plot_data) {
+            const index: number = Number(i)
             processed_data.push(
                 convert_mseed_data_to_signal_plot(
-                    plot_data[i]!, 
+                    plot_data[index]!, 
                     f_min, 
                     f_max,
                     /* add_title     = */ (plot_data.length <= 1),
-                    /* add_x_axis    = */ (Number(i)+1 == plot_data.length),
+                    /* add_x_axis    = */ should_show_signal_plot_x_axis(plot_data, index),
                     /* code_on_yaxis = */ (plot_data.length > 1),
                     /* previous      = */ this._processed_data_cache,
                 )
@@ -146,6 +155,62 @@ export class MSEED_SignalPlot extends preact.Component<{
     }
     #cached_individual_plot_data_signals: Record<number, Readonly<Signal<SignalPlotData|null>>> = {}
 
+
+    /** Current x-axis value that the user hovers on. 
+     *  Either in this plot or in another one. */
+    readonly $hover_time: Signal<Date|null> = 
+        this.props.$hover_time ?? new Signal(null)
+
+
+    /** Create or return a cached ref signal for a D3SignalPlot at `index` */
+    #get_or_create_d3_plot_signalref(index:number): Signal<D3SignalPlot|null> {
+        if(!(index in this.#d3_plot_signalrefs))
+            this.#d3_plot_signalrefs[index] = new Signal<D3SignalPlot|null>(null)
+        return this.#d3_plot_signalrefs[index]!
+    }
+    /** References to currently active d3 plot objects */
+    #d3_plot_signalrefs: Record<number, Signal<D3SignalPlot|null>> = {}
+
+    /** Create or return a cached `$plot_overlays` JSX for plot at `index` */
+    #overlays_for_plot(index:number): Readonly<Signal<JSX.Element[]>> {
+        if(index in this.#cached_plot_overlay_signals)
+            return this.#cached_plot_overlay_signals[index]!
+
+        const $item: Readonly<Signal<SignalPlotData|null>> =
+            this.#get_individual_plot_data_as_preact_signal(index)
+        const $d3plot: Signal<D3SignalPlot|null> =
+            this.#get_or_create_d3_plot_signalref(index)
+
+        const signal: Readonly<Signal<JSX.Element[]>> = signals.computed(() => {
+            const d3plot: D3SignalPlot | null = $d3plot.value
+            if(d3plot == null)
+                return []
+
+            const show_badge: boolean =
+                index == 0
+                || should_show_signal_plot_x_axis(this.props.$plot_data.value, index - 1)
+
+            return [
+                <SignalPlotTimeIndicatorOverlay
+                    $hover_time  = {this.$hover_time}
+                    $plot_data   = {$item}
+                    $plot_width  = {d3plot.$plot_width}
+                    $plot_height = {d3plot.$plot_height}
+                    show_badge   = {show_badge}
+                    key          = {null}
+                />
+            ]
+        })
+        this.#cached_plot_overlay_signals[index] = signal
+        return signal
+    }
+    #cached_plot_overlay_signals: Record<number, Readonly<Signal<JSX.Element[]>>> = {}
+
+    #on_plot_hover(index:number, p:HoverPosition|null): void {
+        this.$hover_time.value = p?.x ?? null
+        this.props.on_hover?.(index, p)
+    }
+
     /** List of JSX elements to be rendered */
     $d3_signal_plots: Readonly<Signal<JSX.Element[]>> = signals.computed( () => {
         const more_than_one_plot:boolean = 
@@ -153,9 +218,24 @@ export class MSEED_SignalPlot extends preact.Component<{
         
         const d3_plots: JSX.Element[] = []
         for(const index in this.$processed_plot_data.value) {
+            const num_index: number = Number(index)
             const $item: Readonly<Signal<SignalPlotData|null>> = 
-                this.#get_individual_plot_data_as_preact_signal(Number(index))
-            const d3_plot: JSX.Element = <D3SignalPlot $plot_data = {$item} />
+                this.#get_individual_plot_data_as_preact_signal(num_index)
+            const $d3plot: Signal<D3SignalPlot|null> =
+                this.#get_or_create_d3_plot_signalref(num_index)
+            const $overlays: Readonly<Signal<JSX.Element[]>> =
+                this.#overlays_for_plot(num_index)
+
+            const d3_plot: JSX.Element = 
+                <D3SignalPlot 
+                    $plot_data     = {$item} 
+                    $plot_overlays = {$overlays}
+                    on_plot_hover  = { 
+                        (p:HoverPosition|null) => this.#on_plot_hover(num_index, p) 
+                    }
+                    ref = {(ref: D3SignalPlot|null) => { $d3plot.value = ref }}
+                />
+
             const d3_plot_maybe_in_container: JSX.Element =
                 more_than_one_plot
                 ? <HoverActionContainer 
@@ -314,6 +394,40 @@ export class MSEED_SignalPlot extends preact.Component<{
 
 
 type SignalPlotDataWithCacheKey = SignalPlotData & {_key:string}
+
+/** Return true if the plot at `index` should display its x-axis */
+export function should_show_signal_plot_x_axis(
+    plot_data: readonly MSEED_SignalPlotData[],
+    index:     number,
+): boolean {
+    const current: MSEED_SignalPlotData | undefined = plot_data[index]
+    if(current == undefined)
+        return false
+
+    const next: MSEED_SignalPlotData | undefined = plot_data[index + 1]
+    if(next == undefined)
+        return true
+
+    const current_domain: [Date, Date] | Error = compute_time_domain(
+        current.start_time,
+        current.slice_start_index,
+        current.slice_start_index + current.data.length,
+        current.sample_rate_hz,
+    )
+    const next_domain: [Date, Date] | Error = compute_time_domain(
+        next.start_time,
+        next.slice_start_index,
+        next.slice_start_index + next.data.length,
+        next.sample_rate_hz,
+    )
+    if(current_domain instanceof Error || next_domain instanceof Error)
+        return true
+
+    return (
+        current_domain[0].getTime() != next_domain[0].getTime()
+        || current_domain[1].getTime() != next_domain[1].getTime()
+    )
+}
 
 function convert_mseed_data_to_signal_plot(
     item:         MSEED_SignalPlotData,
