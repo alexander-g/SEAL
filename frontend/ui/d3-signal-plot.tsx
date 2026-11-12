@@ -183,6 +183,7 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
                 dimensions.plot_width,
                 dimensions.plot_height,
                 this.props.$plot_data.value,
+                this.#_last_y_scale,
             )
         this.props.on_plot_hover(position)
     }
@@ -265,7 +266,12 @@ export class D3SignalPlot extends preact.Component<D3SignalPlotProps> {
             .call(y_axis)
 
         this.$plot_title.value = plot_data.title ?? ''
+        this.#_last_y_scale = y_scale
     }
+
+    /** Cached y scale for hover callback because compute intensive */
+    #_last_y_scale: PlotScales['y_scale']|undefined = undefined
+
 
     #clear_plot(): void {
         if(this.path_ref.current != null)
@@ -421,12 +427,11 @@ type PlotScales = {
     y_scale: d3.ScaleLinear<number, number>,
 }
 
-/** Build x and y D3 scales for the signal plot */
-function compute_plot_scales(
-    plot_data:   SignalPlotData,
-    plot_width:  number,
-    plot_height: number,
-): PlotScales | Error {
+
+function compute_x_scale(
+    plot_data:  SignalPlotData, 
+    plot_width: number
+): d3.ScaleTime<number, number>|Error {
     const data: Float32Array = plot_data.data
     const x_domain: [Date, Date] | Error =
         plot_data.x_domain
@@ -439,14 +444,30 @@ function compute_plot_scales(
     if(x_domain instanceof Error)
         return x_domain
 
+    const x_scale: d3.ScaleTime<number, number> = d3.scaleTime()
+        .domain(x_domain)
+        .range([0, plot_width])
+    return x_scale
+}
+
+/** Build x and y D3 scales for the signal plot */
+function compute_plot_scales(
+    plot_data:   SignalPlotData,
+    plot_width:  number,
+    plot_height: number,
+): PlotScales | Error {
+    const data: Float32Array = plot_data.data
+
     const y_domain: [number, number] | Error =
         plot_data.y_domain ?? compute_signal_y_domain(data, data)
     if(y_domain instanceof Error)
         return y_domain
 
-    const x_scale: d3.ScaleTime<number, number> = d3.scaleTime()
-        .domain(x_domain)
-        .range([0, plot_width])
+    const x_scale: d3.ScaleTime<number, number>|Error = 
+        compute_x_scale(plot_data, plot_width)
+    if(x_scale instanceof Error)
+        return x_scale
+
     const y_scale: d3.ScaleLinear<number, number> = d3.scaleLinear()
         .domain(y_domain)
         .range([plot_height, 0])
@@ -462,23 +483,37 @@ export function compute_hover_position_from_mouse(
     plot_width:  number,
     plot_height: number,
     plot_data:   SignalPlotData | null,
+    /** Optional precomputed y scale, because compute intensive*/
+    y_scale?:    PlotScales['y_scale'],
 ): HoverPosition | null {
     if(plot_data == null || plot_width <= 0 || plot_height <= 0)
         return null
     if(mx < 0 || mx > plot_width || my < 0 || my > plot_height)
         return null
 
-    const scales: PlotScales | Error = compute_plot_scales(
-        plot_data,
-        plot_width,
-        plot_height,
-    )
-    if(scales instanceof Error)
-        return null
+    let x_scale:PlotScales['x_scale']|undefined = undefined
+    if(y_scale == undefined) {
+        const scales: PlotScales | Error = compute_plot_scales(
+            plot_data,
+            plot_width,
+            plot_height,
+        )
+        if(scales instanceof Error)
+            return null
+        y_scale = scales.y_scale
+        x_scale = scales.x_scale
+    } else {
+        const maybe_x_scale: PlotScales['x_scale']|Error = 
+            compute_x_scale(plot_data, plot_width)
+        if(maybe_x_scale instanceof Error)
+            return null
+
+        x_scale = maybe_x_scale
+    }
 
     return {
-        x: scales.x_scale.invert(mx),
-        y: scales.y_scale.invert(my),
+        x: x_scale.invert(mx),
+        y: y_scale.invert(my),
     }
 }
 
@@ -491,15 +526,12 @@ export function compute_x_coordinate_for_time(
     if(time == null || plot_data == null || plot_width <= 0)
         return null
 
-    const scales: PlotScales | Error = compute_plot_scales(
-        plot_data,
-        plot_width,
-        1,
-    )
-    if(scales instanceof Error)
+    const x_scale: d3.ScaleTime<number, number>|Error = 
+        compute_x_scale(plot_data, plot_width)
+    if(x_scale instanceof Error)
         return null
 
-    const x: number = scales.x_scale(time)
+    const x: number = x_scale(time)
     if(!Number.isFinite(x) || x < 0 || x > plot_width)
         return null
 
