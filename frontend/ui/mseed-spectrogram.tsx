@@ -284,6 +284,7 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                         $plot_overlays = {$overlays}
                         $title         = {inputsignals.$title}
                         y_axis_label   = {inputsignals.$y_axis_label}
+                        show_x_axis    = {inputsignals.$show_x_axis}
                         enable_zoom    = {false}
                         downsample     = 'maxpool'
                         ref            = {(ref: D3Heatmap|null) => { $d3heatmap.value = ref }}
@@ -325,11 +326,19 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             if(d3heatmap == null)
                 return []
 
+            const t_axes: (Date[] | null)[] = this.$d3_inputs.value.map(
+                item => item?.t_axis ?? null
+            )
+            const show_badge: boolean =
+                index == 0
+                || should_show_spectrogram_x_axis(t_axes, index - 1)
+
             return [
                 <HeatmapTimeIndicatorOverlay
                     $hover_time = {this.$hover_time}
                     $x_axis     = {inputsignals.t_axis}
                     $plot_size  = {d3heatmap.$plot_dimensions}
+                    show_badge  = {show_badge}
                     key         = {null}
                 />
             ]
@@ -393,7 +402,14 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 if(more_than_one_plot)
                     return code
                 return `Frequency (Hz)`
-            } )
+            } ),
+
+            $show_x_axis: signals.computed( () => {
+                const t_axes: (Date[] | null)[] = this.$d3_inputs.value.map(
+                    item => item?.t_axis ?? null
+                )
+                return should_show_spectrogram_x_axis(t_axes, index)
+            } ),
         }
         return this.#cached_individual_d3_input_signals[index]!
     }
@@ -419,6 +435,29 @@ type D3InputSignals = {
 } & {
     $title:        Readonly<Signal<string>>
     $y_axis_label: Readonly<Signal<string>>
+    $show_x_axis:  Readonly<Signal<boolean>>
+}
+
+
+/** Return true if the spectrogram at `index` should display its x-axis */
+export function should_show_spectrogram_x_axis(
+    t_axes: readonly (readonly Date[] | null)[],
+    index:  number,
+): boolean {
+    const current: readonly Date[] | null | undefined = t_axes[index]
+    if(current == null || current.length == 0)
+        return false
+
+    const next: readonly Date[] | null | undefined = t_axes[index + 1]
+    if(next == null || next.length == 0)
+        return true
+
+    const current_start: number = current[0]!.getTime()
+    const current_end: number   = current[current.length - 1]!.getTime()
+    const next_start: number    = next[0]!.getTime()
+    const next_end: number      = next[next.length - 1]!.getTime()
+
+    return current_start != next_start || current_end != next_end
 }
 
 

@@ -213,10 +213,12 @@ export function XAxisTimeIndicator(props: {
     time:        Date,
     plot_width:  number,
     plot_height: number,
+    show_badge?: boolean,
 }): JSX.Element | null {
     if(props.plot_width <= 0 || props.plot_height <= 0)
         return null
 
+    const show_badge: boolean = props.show_badge ?? true
     const label: string = strftime_ISO8601_datetime(props.time)
     const box_w: number = 136
     const box_h: number = 18
@@ -235,25 +237,27 @@ export function XAxisTimeIndicator(props: {
             stroke-width   = '1.5'
             stroke-opacity = '0.50'
         />
-        <rect
-            x              = {box_x}
-            y              = {0}
-            width          = {box_w}
-            height         = {box_h}
-            fill           = '#000000'
-            fill-opacity   = '0.75'
-            stroke         = '#ffffff'
-            stroke-opacity = '0.4'
-        />
-        <text
-            x           = {box_x + box_w / 2}
-            y           = {13}
-            text-anchor = 'middle'
-            fill        = '#ffffff'
-            font-size   = '11'
-        >
-            {label}
-        </text>
+        {show_badge ? <>
+            <rect
+                x              = {box_x}
+                y              = {0}
+                width          = {box_w}
+                height         = {box_h}
+                fill           = '#000000'
+                fill-opacity   = '0.75'
+                stroke         = '#ffffff'
+                stroke-opacity = '0.4'
+            />
+            <text
+                x           = {box_x + box_w / 2}
+                y           = {13}
+                text-anchor = 'middle'
+                fill        = '#ffffff'
+                font-size   = '11'
+            >
+                {label}
+            </text>
+        </> : null}
     </g>
 }
 
@@ -264,6 +268,7 @@ export function HeatmapTimeIndicatorOverlay(props: {
     $x_axis:          Readonly<Signal<Date[] | number[]>>,
     $plot_size:       Readonly<Signal<Size>>,
     $zoom_transform?: Readonly<Signal<{ k: number, x: number }>>,
+    show_badge?:      boolean,
 }): JSX.Element | null {
     const time: Date | null                       = props.$hover_time.value
     const x_axis: Date[] | number[]               = props.$x_axis.value
@@ -285,6 +290,7 @@ export function HeatmapTimeIndicatorOverlay(props: {
         time        = {time}
         plot_width  = {size.width}
         plot_height = {size.height}
+        show_badge  = {props.show_badge}
     />
 }
 
@@ -295,6 +301,7 @@ export function SignalPlotTimeIndicatorOverlay(props: {
     $plot_data:   Readonly<Signal<SignalPlotData | null>>,
     $plot_width:  Readonly<Signal<number>>,
     $plot_height: Readonly<Signal<number>>,
+    show_badge?:  boolean,
 }): JSX.Element | null {
     const time: Date | null               = props.$hover_time.value
     const plot_data: SignalPlotData | null = props.$plot_data.value
@@ -310,6 +317,7 @@ export function SignalPlotTimeIndicatorOverlay(props: {
         time        = {time}
         plot_width  = {width}
         plot_height = {height}
+        show_badge  = {props.show_badge}
     />
 }
 

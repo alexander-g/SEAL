@@ -30,6 +30,9 @@ export class Axes extends preact.Component<{
     /** Current zoom state */
     $zoom_transform: Readonly<Signal<d3.ZoomTransform>>,
 
+    /** Whether to display the x-axis */
+    $show_x_axis?: Readonly<Signal<boolean>>,
+
     /** Optional formatter for x axis labels */
     x_axis_label_formatter?: (value:number) => string,
 
@@ -56,6 +59,7 @@ export class Axes extends preact.Component<{
         const t:d3.ZoomTransform     = this.props.$zoom_transform.value
         const x_axis:number[]|Date[] = this.props.$x_axis.value
         const y_axis:string[]        = this.props.$y_axis.value
+        const show_x_axis:boolean    = this.props.$show_x_axis?.value ?? true
         const y_axis_tick_values:number[]|undefined =
             this.props.$y_axis_tick_values?.value
         const colsrows:RowsCols|null = this.props.$rowscols.value
@@ -84,8 +88,9 @@ export class Axes extends preact.Component<{
             )
         
         
-        const d3_x_axis: d3.Axis<Date|d3.NumberValue>|null = 
-            create_d3_axis_for_dates_or_numbers(x_axis, zx)
+        const d3_x_axis: d3.Axis<Date|d3.NumberValue>|null = show_x_axis
+            ? create_d3_axis_for_dates_or_numbers(x_axis, zx)
+            : null
                 
         const x_tickvalues:Date[]|d3.NumberValue[] = d3_x_axis?.tickValues() ?? []
         d3_x_axis?.tickFormat(
@@ -104,6 +109,10 @@ export class Axes extends preact.Component<{
             d3.select(this.xaxis_ref.current)
                 // @ts-ignore this is correct 
                 .call(d3_x_axis);
+        else
+            d3.select(this.xaxis_ref.current)
+                .selectAll('*')
+                .remove();
         d3.select(this.yaxis_ref.current)
             // @ts-ignore this is correct 
             .call(d3_y_axis);

@@ -102,13 +102,14 @@ export class MSEED_SignalPlot extends preact.Component<{
 
         const processed_data:(SignalPlotDataWithCacheKey|null)[] = []
         for(const i in plot_data) {
+            const index: number = Number(i)
             processed_data.push(
                 convert_mseed_data_to_signal_plot(
-                    plot_data[i]!, 
+                    plot_data[index]!, 
                     f_min, 
                     f_max,
                     /* add_title     = */ (plot_data.length <= 1),
-                    /* add_x_axis    = */ (Number(i)+1 == plot_data.length),
+                    /* add_x_axis    = */ should_show_signal_plot_x_axis(plot_data, index),
                     /* code_on_yaxis = */ (plot_data.length > 1),
                     /* previous      = */ this._processed_data_cache,
                 )
@@ -185,12 +186,17 @@ export class MSEED_SignalPlot extends preact.Component<{
             if(d3plot == null)
                 return []
 
+            const show_badge: boolean =
+                index == 0
+                || should_show_signal_plot_x_axis(this.props.$plot_data.value, index - 1)
+
             return [
                 <SignalPlotTimeIndicatorOverlay
                     $hover_time  = {this.$hover_time}
                     $plot_data   = {$item}
                     $plot_width  = {d3plot.$plot_width}
                     $plot_height = {d3plot.$plot_height}
+                    show_badge   = {show_badge}
                     key          = {null}
                 />
             ]
@@ -388,6 +394,40 @@ export class MSEED_SignalPlot extends preact.Component<{
 
 
 type SignalPlotDataWithCacheKey = SignalPlotData & {_key:string}
+
+/** Return true if the plot at `index` should display its x-axis */
+export function should_show_signal_plot_x_axis(
+    plot_data: readonly MSEED_SignalPlotData[],
+    index:     number,
+): boolean {
+    const current: MSEED_SignalPlotData | undefined = plot_data[index]
+    if(current == undefined)
+        return false
+
+    const next: MSEED_SignalPlotData | undefined = plot_data[index + 1]
+    if(next == undefined)
+        return true
+
+    const current_domain: [Date, Date] | Error = compute_time_domain(
+        current.start_time,
+        current.slice_start_index,
+        current.slice_start_index + current.data.length,
+        current.sample_rate_hz,
+    )
+    const next_domain: [Date, Date] | Error = compute_time_domain(
+        next.start_time,
+        next.slice_start_index,
+        next.slice_start_index + next.data.length,
+        next.sample_rate_hz,
+    )
+    if(current_domain instanceof Error || next_domain instanceof Error)
+        return true
+
+    return (
+        current_domain[0].getTime() != next_domain[0].getTime()
+        || current_domain[1].getTime() != next_domain[1].getTime()
+    )
+}
 
 function convert_mseed_data_to_signal_plot(
     item:         MSEED_SignalPlotData,

@@ -7,6 +7,84 @@ import {
     compute_x_coordinate_for_time,
     type SignalPlotData,
 } from '../frontend/ui/d3-signal-plot.tsx'
+import {
+    should_show_signal_plot_x_axis,
+    type MSEED_SignalPlotData,
+} from '../frontend/ui/mseed-signal-plot.tsx'
+import {
+    should_show_spectrogram_x_axis,
+} from '../frontend/ui/mseed-spectrogram.tsx'
+
+
+
+Deno.test('should_show_signal_plot_x_axis hides x-axis for consecutive plots with same time domain', () => {
+    const start_time = new Date('2024-01-01T00:00:00Z')
+    const item: MSEED_SignalPlotData = {
+        data:              new Float32Array([0, 1, 2, 3]),
+        start_time:        start_time,
+        sample_rate_hz:    1,
+        slice_start_index: 0,
+        code:              'XX.STA1..HHZ',
+    }
+    const plot_data: MSEED_SignalPlotData[] = [item, { ...item, code: 'XX.STA2..HHZ' }]
+    assert(!should_show_signal_plot_x_axis(plot_data, 0))
+    assert(should_show_signal_plot_x_axis(plot_data, 1))
+})
+
+Deno.test('should_show_signal_plot_x_axis shows x-axis when next plot time domain differs', () => {
+    const item0: MSEED_SignalPlotData = {
+        data:              new Float32Array([0, 1, 2, 3]),
+        start_time:        new Date('2024-01-01T00:00:00Z'),
+        sample_rate_hz:    1,
+        slice_start_index: 0,
+        code:              'XX.STA1..HHZ',
+    }
+    const item1: MSEED_SignalPlotData = {
+        ...item0,
+        start_time: new Date('2024-01-01T00:05:00Z'),
+    }
+    const plot_data: MSEED_SignalPlotData[] = [item0, item1]
+    assert(should_show_signal_plot_x_axis(plot_data, 0))
+    assert(should_show_signal_plot_x_axis(plot_data, 1))
+})
+
+Deno.test('should_show_signal_plot_x_axis handles single plot and out-of-range index', () => {
+    const item: MSEED_SignalPlotData = {
+        data:              new Float32Array([0, 1]),
+        start_time:        new Date('2024-01-01T00:00:00Z'),
+        sample_rate_hz:    1,
+        slice_start_index: 0,
+        code:              'XX.STA1..HHZ',
+    }
+    assert(should_show_signal_plot_x_axis([item], 0))
+    assert(!should_show_signal_plot_x_axis([item], 5))
+})
+
+Deno.test('should_show_spectrogram_x_axis hides x-axis for consecutive plots with same t_axis', () => {
+    const t0 = new Date('2024-01-01T00:00:00Z')
+    const t1 = new Date('2024-01-01T00:05:00Z')
+    const axes: (Date[] | null)[] = [[t0, t1], [t0, t1]]
+    assert(!should_show_spectrogram_x_axis(axes, 0))
+    assert(should_show_spectrogram_x_axis(axes, 1))
+})
+
+Deno.test('should_show_spectrogram_x_axis shows x-axis when next plot t_axis differs', () => {
+    const t0 = new Date('2024-01-01T00:00:00Z')
+    const t1 = new Date('2024-01-01T00:05:00Z')
+    const t2 = new Date('2024-01-01T00:10:00Z')
+    const axes: (Date[] | null)[] = [[t0, t1], [t1, t2]]
+    assert(should_show_spectrogram_x_axis(axes, 0))
+    assert(should_show_spectrogram_x_axis(axes, 1))
+})
+
+Deno.test('should_show_spectrogram_x_axis handles null entries and invalid index', () => {
+    const t0 = new Date('2024-01-01T00:00:00Z')
+    const t1 = new Date('2024-01-01T00:05:00Z')
+    const axes: (Date[] | null)[] = [[t0, t1], null]
+    assert(should_show_spectrogram_x_axis(axes, 0))
+    assert(!should_show_spectrogram_x_axis(axes, 1))
+    assert(!should_show_spectrogram_x_axis(axes, -1))
+})
 
 
 

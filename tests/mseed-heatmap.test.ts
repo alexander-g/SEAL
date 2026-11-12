@@ -1,6 +1,9 @@
 import { assert } from 'asserts'
 import { create_station_palette } from '../frontend/ui/mseed-heatmap.tsx'
-import { compute_heatmap_x_for_time } from '../frontend/ui/mseed-heatmap-overlays.tsx'
+import {
+    compute_heatmap_x_for_time,
+    XAxisTimeIndicator,
+} from '../frontend/ui/mseed-heatmap-overlays.tsx'
 
 
 
@@ -49,6 +52,44 @@ Deno.test('compute_heatmap_x_for_time handles boundary timestamps', () => {
     const x_axis: Date[] = [start_time, end_time]
     assert(compute_heatmap_x_for_time(start_time, x_axis, 200) == 0)
     assert(compute_heatmap_x_for_time(end_time, x_axis, 200) == 100)
+})
+
+Deno.test('XAxisTimeIndicator renders datetime badge by default', () => {
+    const element = XAxisTimeIndicator({
+        x:           50,
+        time:        new Date('2024-01-01T00:00:05Z'),
+        plot_width:  200,
+        plot_height: 100,
+    })
+    assert(element != null)
+    const children = Array.isArray(element.props.children)
+        ? element.props.children.filter(Boolean)
+        : [element.props.children]
+    assert(children.length == 2)
+})
+
+Deno.test('XAxisTimeIndicator omits datetime badge when show_badge is false', () => {
+    const element = XAxisTimeIndicator({
+        x:           50,
+        time:        new Date('2024-01-01T00:00:05Z'),
+        plot_width:  200,
+        plot_height: 100,
+        show_badge:  false,
+    })
+    assert(element != null)
+    const children = Array.isArray(element.props.children)
+        ? element.props.children.filter(Boolean)
+        : [element.props.children]
+    assert(children.length == 1)
+})
+
+Deno.test('XAxisTimeIndicator returns null for non-positive plot dimensions', () => {
+    assert(XAxisTimeIndicator({
+        x:           50,
+        time:        new Date('2024-01-01T00:00:05Z'),
+        plot_width:  0,
+        plot_height: 100,
+    }) == null)
 })
 
 

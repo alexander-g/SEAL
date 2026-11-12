@@ -67,6 +67,7 @@ export class D3Heatmap extends preact.Component<{
     $title?:       Readonly<Signal<string>>,
     x_axis_label?: string,
     y_axis_label?: string|Readonly<Signal<string>>,
+    show_x_axis?:  boolean|Readonly<Signal<boolean>>,
     x_axis_label_formatter?: (value:number) => string,
     y_axis_label_formatter?: (index:number, y_axis:string[]) => string,
 
@@ -86,7 +87,22 @@ export class D3Heatmap extends preact.Component<{
     svgimage_ref:  preact.RefObject<SVGImageElement> = preact.createRef();
     resize_observer: ResizeObserver|null = null
 
-    private margin: PlotMargin = { top: 24, right: 12, bottom: 18, left: 60 }
+    private $show_x_axis: Readonly<Signal<boolean>> = signals.computed(() => {
+        const show_x_axis: boolean | Readonly<Signal<boolean>> | undefined =
+            this.props.show_x_axis
+        if(show_x_axis == undefined)
+            return true
+        if(typeof show_x_axis == 'boolean')
+            return show_x_axis
+        return show_x_axis.value
+    })
+
+    private $margin: Readonly<Signal<PlotMargin>> = signals.computed(() => ({
+        top:    24,
+        right:  12,
+        bottom: this.$show_x_axis.value ? 18 : 0,
+        left:   60,
+    }))
 
     /** Size of the top element, including heatmap image, margins, axes labels etc */
     private $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
@@ -104,6 +120,12 @@ export class D3Heatmap extends preact.Component<{
     private $plot_height:Readonly<Signal<number>> = signals.computed(() =>
         this.$plot_dimensions.value.height
     )
+
+
+    private $root_transform: Readonly<Signal<string>> = signals.computed(() => {
+        const margin: PlotMargin = this.$margin.value
+        return `translate(${margin.left},${margin.top})`
+    })
 
 
     render(): JSX.Element {
@@ -132,7 +154,7 @@ export class D3Heatmap extends preact.Component<{
 
                 <g 
                     ref = {this.root_ref}
-                    transform = {`translate(${this.margin.left},${this.margin.top})`} 
+                    transform = {this.$root_transform} 
                 >
                     
                     <g clip-path={`url(#${this.clip_path_id})`}>
@@ -185,6 +207,7 @@ export class D3Heatmap extends preact.Component<{
                         $y_axis                = {this.props.$y_axis}
                         $y_axis_tick_values    = {this.props.$y_axis_tick_values}
                         $zoom_transform        = {this.$zoom_transform}
+                        $show_x_axis           = {this.$show_x_axis}
                         x_axis_label_formatter = {this.props.x_axis_label_formatter}
                         y_axis_label_formatter = {this.props.y_axis_label_formatter}
                     />
@@ -192,11 +215,14 @@ export class D3Heatmap extends preact.Component<{
                         $plot_width = {this.$plot_width} 
                         $title      = {this.props.$title} 
                     />
-                    <PlotXAxisLabel 
-                        text         = {this.props.x_axis_label}
-                        $plot_height = {this.$plot_height} 
-                        $plot_width  = {this.$plot_width}
-                    />
+                    {this.$show_x_axis.value
+                        ? <PlotXAxisLabel 
+                            text         = {this.props.x_axis_label}
+                            $plot_height = {this.$plot_height} 
+                            $plot_width  = {this.$plot_width}
+                        />
+                        : null
+                    }
                     <PlotYAxisLabel
                         text         = {this.props.y_axis_label}
                         $plot_height = {this.$plot_height}
@@ -349,7 +375,7 @@ export class D3Heatmap extends preact.Component<{
 
     /** Rect of the heatmap image within the SVG component */
     $plot_dimensions:Readonly<Signal<Rect>> = signals.computed(
-        () => remove_margin_from_size(this.$container_size.value, this.margin)
+        () => remove_margin_from_size(this.$container_size.value, this.$margin.value)
     )
 
 
