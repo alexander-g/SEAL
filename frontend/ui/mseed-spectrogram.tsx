@@ -3,6 +3,7 @@ import { preact, Signal, signals, JSX } from '../dep.ts'
 import { 
     create_spectrogram_for_visualization_parallelized, 
     type SpectrogramOutput,
+    type Size,
 } from '../lib/signal-processing-visualization.ts'
 
 import {
@@ -13,6 +14,7 @@ import {
 
 import {
     D3Heatmap,
+    remove_margin_from_size,
     type DataItem as HeatmapDataItem,
     type HoverCallbackPosition,
 } from './d3-heatmap.tsx'
@@ -100,8 +102,68 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         </>
     }
 
+    override componentDidMount(): void {
+        const container: HTMLDivElement | null = this.plot_container_ref.current
+        if(container != null) {
+            this.#update_container_size(container.clientWidth, container.clientHeight)
+            this.resize_observer = new ResizeObserver(this.#on_container_resize)
+            this.resize_observer.observe(container)
+        }
+    }
+
     override componentWillUnmount(): void {
+        this.resize_observer?.disconnect()
+        this.resize_observer = null
         this.#update_effect_cleanup_fn()
+    }
+
+    resize_observer: ResizeObserver | null = null
+    $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
+    $target_size: Signal<Size | null> = new Signal(null)
+
+    #on_container_resize = (entries: ResizeObserverEntry[]): void => {
+        const first: ResizeObserverEntry | undefined = entries[0]
+        if(first == undefined)
+            return
+
+        this.#update_container_size(
+            first.contentRect.width,
+            first.contentRect.height,
+        )
+    }
+
+    #update_container_size(width: number, height: number): void {
+        const next_width: number  = Math.max(Math.floor(width), 0)
+        const next_height: number = Math.max(Math.floor(height), 0)
+        const current: Size = this.$container_size.value
+        if(current.width == next_width && current.height == next_height)
+            return
+
+        this.$container_size.value = {
+            width:  next_width,
+            height: next_height,
+        }
+        this.#refresh_target_size()
+    }
+
+    #refresh_target_size(): void {
+        const container_size: Size = this.$container_size.peek()
+        if(container_size.width <= 0 || container_size.height <= 0)
+            return
+
+        const plot_count: number = Math.max(1, this.props.$data.peek().length)
+        const per_plot_size: Size = {
+            width:  container_size.width,
+            height: Math.floor(container_size.height / plot_count),
+        }
+        const plot_rect: Size = remove_margin_from_size(
+            per_plot_size,
+            { top: 24, right: 12, bottom: 18, left: 60 },
+        )
+        const next: Size | null =
+            stabilize_spectrogram_target_size(this.$target_size.peek(), plot_rect)
+        if(next != this.$target_size.peek())
+            this.$target_size.value = next
     }
 
     /** Parameters modified by the user. */
@@ -187,6 +249,9 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         const signal_length: number = this.settings.$slice_length.value
         const scale: boolean        = this.settings.$scale_colors.value
 
+        this.#refresh_target_size()
+        const target_size: Size | null = this.$target_size.value
+
         if(this.$updating.peek())
             return
         this.$updating.value = true
@@ -198,14 +263,16 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
             const i0:number = item.slice_start_index
             const i1:number = i0 + signal_length * item.fs
 
-            const _cachekey:string = _construct_cache_key(item, i0, i1)
+            const _cachekey:string = _construct_cache_key(item, i0, i1, target_size)
             const spectrogram_output:SpectrogramOutput|Error
                 = this._spectrogram_cache[_cachekey]
                 ?? await create_spectrogram_for_visualization_parallelized(
                         item.signal, 
                         item.fs, 
                         i0, 
-                        i1
+                        i1,
+                        undefined,
+                        target_size ?? undefined,
                     )
             if(spectrogram_output instanceof Error) {
                 console.log(`Could not create spectrogram`, spectrogram_output)
@@ -476,8 +543,38 @@ export function should_show_spectrogram_x_axis(
 }
 
 
-function _construct_cache_key(item:MSEED_Data, i0:number, i1:number): string {
-    return `${item.code}-${item.start_time}-${item.signal.length}-${i0}-${i1}`
+/** Keep `previous` size if `next` is within a 1:2 to 2:1 ratio on both axes */
+export function stabilize_spectrogram_target_size(
+    previous: Size | null,
+    next:     Size,
+): Size | null {
+    if(next.width <= 0 || next.height <= 0)
+        return previous
+    if(previous == null || previous.width <= 0 || previous.height <= 0)
+        return next
+
+    const width_ratio: number  = next.width / previous.width
+    const height_ratio: number = next.height / previous.height
+    const within_bounds: boolean =
+        width_ratio >= 0.5
+        && width_ratio <= 2.0
+        && height_ratio >= 0.5
+        && height_ratio <= 2.0
+    if(within_bounds)
+        return previous
+
+    return next
+}
+
+function _construct_cache_key(
+    item:        MSEED_Data,
+    i0:          number,
+    i1:          number,
+    target_size: Size | null,
+): string {
+    const size_key: string =
+        target_size != null ? `${target_size.width}x${target_size.height}` : 'default'
+    return `${item.code}-${item.start_time}-${item.signal.length}-${i0}-${i1}-${size_key}`
 }
 
 

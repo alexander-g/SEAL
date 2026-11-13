@@ -8,7 +8,7 @@ import type { FrequencyBand } from './signal-processing.ts'
 import {
     type SpectrogramOutput,
     type SpectrogramFrameRange,
-    type SpectrogramPlan,
+    type SpectrogramArgs,
 } from './signal-processing-visualization.ts'
 
 
@@ -78,7 +78,7 @@ export class WorkerPool {
     compute_spectrogram_for_visualization(
         signal:      Float32Array,
         fs:          number,
-        plan:        SpectrogramPlan,
+        plan:        SpectrogramArgs,
         framerange?: SpectrogramFrameRange,
     ): Promise<{promise: Promise<SpectrogramOutput|Error>}> {
         const task_id:number = this.next_id++

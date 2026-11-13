@@ -9,7 +9,7 @@ import {
     postprocess_spectrogram,
     type SpectrogramOutput,
     type SpectrogramFrameRange,
-    type SpectrogramPlan,
+    type SpectrogramArgs,
 } from './signal-processing-visualization.ts'
 
 
@@ -39,7 +39,7 @@ export type ComputeSpectrogramTask = {
     type:        'compute-spectrogram'
     signal:      Float32Array
     fs:          number
-    plan:        SpectrogramPlan
+    plan:        SpectrogramArgs
     framerange?: SpectrogramFrameRange
 
     task_id:     number
