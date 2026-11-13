@@ -65,6 +65,9 @@ type MSEED_SpectrogramProps = {
 
     /** Shared hover timestamp synchronized across plots */
     $hover_time?: Signal<Date|null>;
+
+    /** Current audio playback timestamp */
+    $playback_time?: Readonly<Signal<Date|null>>;
 }
 
 
@@ -333,15 +336,27 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
                 index == 0
                 || should_show_spectrogram_x_axis(t_axes, index - 1)
 
-            return [
+            const overlays: JSX.Element[] = [
                 <HeatmapTimeIndicatorOverlay
                     $hover_time = {this.$hover_time}
                     $x_axis     = {inputsignals.t_axis}
                     $plot_size  = {d3heatmap.$plot_dimensions}
                     show_badge  = {show_badge}
-                    key         = {null}
+                    key         = 'hover-time'
                 />
             ]
+            if(index == 0 && this.props.$playback_time != undefined) {
+                overlays.push(
+                    <HeatmapTimeIndicatorOverlay
+                        $hover_time = {this.props.$playback_time}
+                        $x_axis     = {inputsignals.t_axis}
+                        $plot_size  = {d3heatmap.$plot_dimensions}
+                        show_badge  = {false}
+                        key         = 'playback-time'
+                    />
+                )
+            }
+            return overlays
         })
         this.#cached_plot_overlay_signals[index] = signal
         return signal

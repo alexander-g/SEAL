@@ -18,7 +18,7 @@ import {
     type DataSignalSlice as SignalSliceForHeatmap,
 } from './mseed-heatmap.tsx'
 
-import { AudioPlaybackControls } from './audio-playback-controls.tsx'
+import { MSEED_AudioPlayback } from './mseed-audio.tsx'
 import { SelectablePanelsRow } from './selectable-panels-row.tsx'
 import { SplitPanels } from './split-panels.tsx'
 import {
@@ -35,16 +35,6 @@ import type { MSeedMetadata }     from '../lib/mseed-parsing.ts'
 import type { Station, Channel }  from '../lib/station-xml.ts'
 import type { QuakeEvent }        from '../lib/quakeml.ts'
 import type { AudioWaveform }     from './audio-playback-controls.tsx'
-import { 
-    percentile,
-    signal_cubic_interpolate_to_length,
-    signal_add_scalar,
-    signal_scale,
-    signal_abs,
-    signal_clip,
-    median,
-} from "../lib/signal-processing.ts";
-
 
 
 
@@ -76,11 +66,12 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Signal',
                 element: 
                     <MSEED_SignalPlot
-                        $plot_data    = {this.$signal_plot_data}
-                        $loading      = {this.$plots_loading}
-                        $slice_length = {this.$signal_slice_length}
-                        $hover_time   = {this.$hover_time}
-                        on_remove     = {this.on_signal_remove}
+                        $plot_data     = {this.$signal_plot_data}
+                        $loading       = {this.$plots_loading}
+                        $slice_length  = {this.$signal_slice_length}
+                        $hover_time    = {this.$hover_time}
+                        $playback_time = {this.$playback_time}
+                        on_remove      = {this.on_signal_remove}
                     />
             },
             {
@@ -88,10 +79,11 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Spectrogram',
                 element:
                 <MSEED_Spectrogram
-                    $data         = {this.$spectrogram_plot_data}
-                    $loading      = {this.$plots_loading}
-                    $slice_length = {this.$signal_slice_length}
-                    $hover_time   = {this.$hover_time}
+                    $data          = {this.$spectrogram_plot_data}
+                    $loading       = {this.$plots_loading}
+                    $slice_length  = {this.$signal_slice_length}
+                    $hover_time    = {this.$hover_time}
+                    $playback_time = {this.$playback_time}
                 />
             },
             // {
@@ -141,7 +133,10 @@ export class MainContent extends preact.Component<MainContentProps> {
                         element: <SelectablePanelsRow
                             items = {panels}
                             bottom_left_element = {
-                                <AudioPlaybackControls $audiodata={this.$audiodata} />
+                                <MSEED_AudioPlayback
+                                    $audiodata         = {this.$audiodata}
+                                    on_position_change = {this.on_audio_position_change}
+                                />
                             }
                             initial_preference = {['plot', 'spectrogram', 'map']}
                         />,
@@ -267,6 +262,21 @@ export class MainContent extends preact.Component<MainContentProps> {
 
     /** Shared hover timestamp synchronized across heatmap, signal plots, and spectrograms */
     $hover_time: Signal<Date|null> = new Signal(null)
+
+    /** Current audio playback position in seconds relative to first selected slice */
+    $playback_position_seconds: Signal<number|null> = new Signal(null)
+
+    /** Current audio playback timestamp synchronized across signal plots and spectrograms */
+    $playback_time: Readonly<Signal<Date|null>> = signals.computed(() =>
+        compute_playback_time(
+            this.$selected_slices.value[0]?.start_time ?? null,
+            this.$playback_position_seconds.value,
+        )
+    )
+
+    on_audio_position_change = (position_seconds: number): void => {
+        this.$playback_position_seconds.value = position_seconds
+    }
 
     /** Called when the user hovers on a station marker in the map */
     on_marker_hover = (index:number|null) => {
@@ -414,10 +424,6 @@ export class MainContent extends preact.Component<MainContentProps> {
                 slice_start_index: 0,
             })
 
-            // for now only signal plots with multiple signals
-            // TODO: multi-signal spectrograms etc
-            // if( Number(i) > 0 )
-                // continue
 
 
             new_spectrogram_data_list.push({
@@ -434,15 +440,16 @@ export class MainContent extends preact.Component<MainContentProps> {
             //     fs:            mseed.meta.samplerate,
             //     code:          code,
             // }
-            // this.$audiodata.value = {
-            //     data: await slice_and_prepare_seismic_signal_for_audio(
-            //         data,
-            //         mseed.meta.samplerate,
-            //         selectedslice.start_index,
-            //         slice_end_index
-            //     ),
-            //     samplerate: 8000,
-            // }
+
+
+            // for now audio only for the first signal slice
+            if( Number(i) > 0 )
+                continue
+
+            this.$audiodata.value = {
+                data:       data,
+                samplerate: mseed.meta.samplerate,
+            }
         }
         } finally {
             this.$plots_loading.value = false
@@ -522,6 +529,20 @@ export class MainContent extends preact.Component<MainContentProps> {
 type SelectedSignalSlice = {file_index:number, start_time:Date};
 
 
+/** Compute absolute playback Date from slice start time and relative seconds */
+export function compute_playback_time(
+    start_time:       Date | null,
+    position_seconds: number | null,
+): Date | null {
+    if(start_time == null || position_seconds == null)
+        return null
+    if(!Number.isFinite(position_seconds) || position_seconds < 0)
+        return null
+
+    return new Date(start_time.getTime() + position_seconds * 1000)
+}
+
+
 /** Check if a station has matching MSEED meta. */
 function station_has_mseed_meta(
     station:    Station,
@@ -598,39 +619,6 @@ function _find_previous_mseed_signal_plot_data(
             | 'response'
         >
     >;
-}
-
-
-
-async function slice_and_prepare_seismic_signal_for_audio(
-    signal:   Float32Array, 
-    fs:       number,
-    i0:       number, 
-    i1:       number,
-    f_target: number = 8000,
-    speedup:  number = 8,
-): Promise<Float32Array> {
-    i0 = Math.max(i0, 0)
-    i1 = Math.min(i1, signal.length)
-
-    signal = signal.slice(i0, i1)
-    // at least one second
-    if(signal.length < 2)
-        return signal
-
-    signal = signal_add_scalar(signal, -median(signal))
-    const percentile_998: number = percentile(signal_abs(signal), 99.8)
-
-    const n:number = Math.floor(signal.length / fs * f_target / speedup)
-    // a bit too hardcoded?
-    if(n < 128)
-        return new Float32Array(0)
-
-    signal = signal_cubic_interpolate_to_length(signal, n)
-    signal = signal_scale(signal, 1 / percentile_998)
-    signal = signal_clip(signal, -5, 5)
-
-    return signal;
 }
 
 

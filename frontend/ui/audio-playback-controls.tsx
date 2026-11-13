@@ -51,39 +51,35 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
             rowGap:     '8px',
             columnGap:  '12px',
             color:      '#3f3f3f',
-            fontSize:   '12px',
+            fontSize:   '11px',
+            fontFamily: 'Arial',
         }}>
             <div style={{
                 display:    'flex',
                 alignItems: 'center',
                 gap:        '6px',
             }}>
-                <button
-                    type     = 'button'
-                    onClick  = {this.on_start_click}
-                    style    = {get_selectable_button_style(this.$is_playing.value)}
+                <AudioButton 
+                    on_click = {this.on_start_click}
+                    label    = "Play"
+                    svg_path = "M7 4v16l13-8z"
+                    selected = {this.$is_playing.value}
                     disabled = {this.$is_playing.value || !has_audio}
-                >
-                    Start
-                </button>
-                <button
-                    type     = 'button'
-                    onClick  = {this.on_pause_click}
-                    style    = {
-                        get_selectable_button_style(!this.$is_playing.value && has_audio)
-                    }
+                />
+                <AudioButton 
+                    on_click = {this.on_pause_click}
+                    label    = "Pause"
+                    svg_path = "M6 4h4v16H6zm8 0h4v16h-4z"
+                    selected = {!this.$is_playing.value && has_audio}
                     disabled = {!this.$is_playing.value || !has_audio}
-                >
-                    Pause
-                </button>
-                <button
-                    type     = 'button'
-                    onClick  = {this.on_stop_click}
-                    style    = {get_selectable_button_style(false)}
+                />
+                <AudioButton 
+                    on_click = {this.on_stop_click}
+                    label    = "Stop"
+                    svg_path = "M5 5h14v14H5z"
+                    selected = {false}
                     disabled = {!this.$is_playing.value && position_seconds == 0}
-                >
-                    Stop
-                </button>
+                />
             </div>
 
             <label style={{
@@ -152,7 +148,7 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
     $is_playing: Signal<boolean> = new Signal(false)
     
     /** Current playback speed factor */
-    $speed: Signal<number> = new Signal(1)
+    $speed: Signal<number> = new Signal(8)
     
     /** Current gain factor */
     $gain:  Signal<number> = new Signal(1)
@@ -205,8 +201,10 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
 
         this.$speed.value = parsed
 
-        if(this.$is_playing.value)
+        if(this.$is_playing.value) {
+            this.update_position_from_audio_clock()
             this.restart_playback_at_current_position()
+        }
     }
 
     on_gain_input = (event:Event): void => {
@@ -387,7 +385,6 @@ export class AudioPlaybackControls extends preact.Component<AudioPlaybackControl
         if(waveform == null)
             return
 
-        this.update_position_from_audio_clock()
         const position_seconds:number = this.$position_seconds.value
         const start_result:void|Error =
             this.start_playback_from(waveform, position_seconds)
@@ -531,5 +528,35 @@ function build_audio_buffer(
     } catch (error:unknown) {
         return new Error(String(error))
     }
+}
+
+
+function AudioButton(props:{
+    on_click: () => void,
+    label:    string,
+    svg_path: string,
+    selected: boolean,
+    disabled: boolean,
+}): JSX.Element {
+    return <button
+        type     = 'button'
+        onClick  = {props.on_click}
+        style={{
+            ...get_selectable_button_style(props.selected),
+            display:    "inline-flex",
+            alignItems: "center",
+            gap:        "0.10em",
+        }}
+        disabled = {props.disabled}
+    >
+        <svg viewBox    = "0 0 24 24"
+            width       = "16"
+            height      = "16"
+            aria-hidden = "true"
+        >
+            <path d = {props.svg_path}/>
+        </svg>
+        { props.label }
+    </button>
 }
 

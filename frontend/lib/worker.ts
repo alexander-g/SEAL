@@ -1,6 +1,7 @@
 import { 
     compute_band_power_ratio, 
-    compute_envelope ,
+    compute_envelope,
+    prepare_seismic_signal_for_audio,
     type FrequencyBand,
 } from "./signal-processing.ts"
 import {
@@ -44,11 +45,21 @@ export type ComputeSpectrogramTask = {
     task_id:     number
 }
 
+export type PrepareAudioTask = {
+    type:     'prepare-audio'
+    signal:   Float32Array
+    fs:       number
+    f_target: number
+
+    task_id:  number
+}
+
 
 export type Task =
     | ComputeEnvelopeTask
     | ComputeBandPowerRatioTask
     | ComputeSpectrogramTask
+    | PrepareAudioTask
 
 
 
@@ -70,11 +81,18 @@ export type ComputeSpectrogramResult = {
     spectrogram: SpectrogramOutput | Error
 }
 
+export type PrepareAudioResult = {
+    type:    'prepare-audio'
+    task_id: number
+    signal:  Float32Array
+}
+
 
 export type WorkerResult =
     | ComputeEnvelopeResult
     | ComputeBandPowerRatioResult
     | ComputeSpectrogramResult
+    | PrepareAudioResult
 
 
 
@@ -124,6 +142,17 @@ self.onmessage = async (e:MessageEvent) => {
             type:        'compute-spectrogram',
             task_id:     task.task_id,
             spectrogram: spectrogram,
+        }
+    } else if(task.type == 'prepare-audio') {
+        const signal: Float32Array = prepare_seismic_signal_for_audio(
+            task.signal,
+            task.fs,
+            task.f_target,
+        )
+        result = {
+            type:    'prepare-audio',
+            task_id: task.task_id,
+            signal:  signal,
         }
     } else
         result = new Error(`Unknown worker task type: ${tasktype}`)

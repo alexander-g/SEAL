@@ -822,3 +822,28 @@ function compute_natural_cubic_second_derivative(
 
     return second_derivative
 }
+
+
+/** Resample and normalize a seismic signal for audio playback. */
+export function prepare_seismic_signal_for_audio(
+    signal:   Float32Array,
+    fs:       number,
+    f_target: number = 8000,
+): Float32Array {
+    if(signal.length < 2)
+        return signal
+
+    signal = signal_add_scalar(signal, -median(signal))
+    const percentile_998: number = percentile(signal_abs(signal), 99.8)
+
+    const n: number = Math.floor(signal.length / fs * f_target)
+    if(n < 512)
+        return new Float32Array(0)
+
+    signal = signal_cubic_interpolate_to_length(signal, n)
+    signal = signal_scale(signal, 1 / percentile_998)
+    signal = signal_clip(signal, -5, 5)
+
+    return signal
+}
+
