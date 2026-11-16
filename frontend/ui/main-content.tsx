@@ -398,7 +398,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                 )
             
             // re-use previous item's data or read from files
-            const data: Float32Array|Error =
+            let data: Float32Array|Error =
                 previous?.data
                 ?? await read_mseed_slice_across_files(
                     mseeds,
@@ -411,6 +411,9 @@ export class MainContent extends preact.Component<MainContentProps> {
                 continue
             }
 
+            data = data.slice(0, slice_length_samples)
+
+            
             const channel: Channel|null =
                 // should this be a subscription instead of .peek() ?
                 find_channel_for_mseed_meta(mseed.meta, this.props.$stations.peek())

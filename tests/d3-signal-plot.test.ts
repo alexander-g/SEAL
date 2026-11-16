@@ -13,7 +13,11 @@ import {
 } from '../frontend/ui/mseed-signal-plot.tsx'
 import {
     should_show_spectrogram_x_axis,
+    stabilize_spectrogram_target_size,
 } from '../frontend/ui/mseed-spectrogram.tsx'
+import {
+    build_spectrogram_args,
+} from '../frontend/lib/signal-processing-visualization.ts'
 
 
 
@@ -84,6 +88,53 @@ Deno.test('should_show_spectrogram_x_axis handles null entries and invalid index
     assert(should_show_spectrogram_x_axis(axes, 0))
     assert(!should_show_spectrogram_x_axis(axes, 1))
     assert(!should_show_spectrogram_x_axis(axes, -1))
+})
+
+Deno.test('stabilize_spectrogram_target_size keeps previous size within 1:2 to 2:1 ratio', () => {
+    const prev = { width: 400, height: 200 }
+    assert(
+        stabilize_spectrogram_target_size(prev, { width: 200, height: 100 }) == prev
+    )
+    assert(
+        stabilize_spectrogram_target_size(prev, { width: 800, height: 400 }) == prev
+    )
+
+    const updated = stabilize_spectrogram_target_size(prev, { width: 801, height: 200 })
+    assert(updated != null)
+    assert(updated.width == 801)
+    assert(updated.height == 200)
+})
+
+Deno.test('stabilize_spectrogram_target_size ignores non-positive dimensions', () => {
+    const prev = { width: 400, height: 200 }
+    assert(stabilize_spectrogram_target_size(prev, { width: 0, height: 200 }) == prev)
+    assert(stabilize_spectrogram_target_size(prev, { width: 400, height: -5 }) == prev)
+})
+
+Deno.test('stabilize_spectrogram_target_size initializes from null previous size', () => {
+    const next = { width: 320, height: 160 }
+    assert(stabilize_spectrogram_target_size(null, next) == next)
+})
+
+Deno.test('build_spectrogram_args adapts frame_count and n_fft to target size', () => {
+    const plan = build_spectrogram_args(60000, 200, { width: 300, height: 128 })
+    assert(!(plan instanceof Error))
+    assert(plan.n_fft == 256)
+    assert(plan.frame_count >= 150 && plan.frame_count <= 600)
+})
+
+Deno.test('build_spectrogram_args returns Error for invalid inputs', () => {
+    assert(build_spectrogram_args(0, 200, { width: 300, height: 128 }) instanceof Error)
+    assert(build_spectrogram_args(1000, 0, { width: 300, height: 128 }) instanceof Error)
+})
+
+Deno.test('build_spectrogram_args handles very short signals with target size', () => {
+    const plan = build_spectrogram_args(2, 200, { width: 500, height: 256 })
+    assert(!(plan instanceof Error))
+    assert(plan.n_per_segment <= 2)
+    assert(plan.n_fft >= plan.n_per_segment)
+    assert(plan.hop_size >= 1)
+    assert(plan.frame_count >= 1)
 })
 
 

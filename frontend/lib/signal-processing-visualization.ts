@@ -16,11 +16,16 @@ export type SpectrogramOutput = {
     t_axis:  Float32Array
 }
 
-export type SpectrogramPlan = {
+export type SpectrogramArgs = {
     n_per_segment: number
     n_fft:         number
     hop_size:      number
     frame_count:   number
+}
+
+export type Size = {
+    width:  number
+    height: number
 }
 
 export type SpectrogramFrameRange = {
@@ -39,18 +44,19 @@ const HARDCODED_FRAMES_PER_WORKER = 10000
 
 
 export async function create_spectrogram_for_visualization_parallelized(
-    signal:     Float32Array,
-    fs:         number,
-    i0:         number,
-    i1:         number,
-    chunksize?: number,
+    signal:       Float32Array,
+    fs:           number,
+    i0:           number,
+    i1:           number,
+    chunksize?:   number,
+    target_size?: Size,
 ): Promise<SpectrogramOutput|Error> {
     const signal_slice: Float32Array = signal.slice(i0, i1)
     if(signal_slice.length <= 1)
         return new Error('Signal too short')
 
-    const plan: SpectrogramPlan|Error = 
-        build_spectrogram_plan(signal_slice.length, fs)
+    const plan: SpectrogramArgs|Error = 
+        build_spectrogram_args(signal_slice.length, fs, target_size)
     if(plan instanceof Error)
         return plan as Error;
 
@@ -59,7 +65,13 @@ export async function create_spectrogram_for_visualization_parallelized(
     const n_chunks: number  = Math.ceil(plan.frame_count / chunksize)
     if(n_chunks <= 1)
         // just run in the main thread for short signals
-        return create_spectrogram_for_visualization(signal, fs, i0, i1)
+        return create_spectrogram_for_visualization(
+            signal,
+            fs,
+            i0,
+            i1,
+            target_size,
+        )
     
     signal = normalize_signal(signal_slice, fs)
 
@@ -79,7 +91,7 @@ export async function create_spectrogram_for_visualization_parallelized(
             (range.frame_end - 1) * plan.hop_size + plan.n_per_segment,
         )
         const signal_chunk: Float32Array = signal.slice(sample_start, sample_end)
-        const local_plan: SpectrogramPlan = {
+        const local_plan: SpectrogramArgs = {
             ...plan,
             frame_count: range.frame_end - range.frame_start,
         }
@@ -108,17 +120,23 @@ export async function create_spectrogram_for_visualization_parallelized(
 
 
 export function create_spectrogram_for_visualization(
-    signal: Float32Array,
-    fs:     number,
-    i0:     number,
-    i1:     number,
+    signal:       Float32Array,
+    fs:           number,
+    i0:           number,
+    i1:           number,
+    target_size?: Size,
 ): SpectrogramOutput|Error {
     signal = signal.slice(i0, i1)
     if(signal.length <= 1)
         return new Error('Signal too short')
     signal = normalize_signal(signal, fs)
 
-    const spectrogram: STFTOutput|Error = create_spectrogram(signal, fs)
+    const plan: SpectrogramArgs|Error =
+        build_spectrogram_args(signal.length, fs, target_size)
+    if(plan instanceof Error)
+        return plan as Error
+
+    const spectrogram: STFTOutput|Error = create_spectrogram(signal, fs, plan)
     if(spectrogram instanceof Error)
         return spectrogram as Error
 
@@ -172,20 +190,42 @@ function dc_blocker(
 
 
 
-export function build_spectrogram_plan(
+export function build_spectrogram_args(
     signal_length: number,
     fs:            number,
-): SpectrogramPlan|Error {
+    target_size?:  Size,
+): SpectrogramArgs|Error {
     if(signal_length <= 0)
         return new Error('build_spectrogram_plan: signal_length must be > 0')
     if(fs <= 0)
         return new Error('build_spectrogram_plan: fs must be > 0')
 
     const n_samples: number = signal_length
+    const has_target_size: boolean =
+        target_size != undefined
+        && target_size.width > 0
+        && target_size.height > 0
+
+    if(has_target_size) {
+        const target_bins: number   = Math.max(2, Math.round(target_size!.height))
+        const target_frames: number = Math.max(1, Math.round(target_size!.width))
+
+        const desired_n_fft: number = next_power_of_two(target_bins * 2)
+        const n_per_segment: number =
+            Math.max(1, Math.min(desired_n_fft, n_samples))
+        const n_fft: number = Math.max(desired_n_fft, next_power_of_two(n_per_segment))
+
+        const remaining: number = Math.max(0, n_samples - n_per_segment)
+        const hop_size: number  = Math.max(1, Math.round(remaining / target_frames))
+        const frame_count: number =
+            compute_stft_frame_count(n_samples, n_per_segment, hop_size)
+
+        return { n_per_segment, n_fft, hop_size, frame_count }
+    }
+
     // two seconds per frame
     const n_per_segment: number = Math.max(1, Math.min( Math.round(fs * 2), n_samples ) )
     const n_fft: number         = next_power_of_two(n_per_segment)
-    //const hop_size: number      = Math.max( Math.floor(n_per_segment / 4), 1)
 
     // adaptive hop size 0.25..0.75, larger for large signals to speed things up
     const relative_hop_size: number = 
@@ -201,12 +241,12 @@ export function build_spectrogram_plan(
 export function create_spectrogram(
     signal: Float32Array,
     fs:     number,
-    plan?:  SpectrogramPlan,
+    plan?:  SpectrogramArgs,
     range?: SpectrogramFrameRange,
 ): STFTOutput|Error {
     const n_samples: number     = signal.length
     if(!plan) {
-        const plan_: SpectrogramPlan|Error = build_spectrogram_plan(n_samples, fs)
+        const plan_: SpectrogramArgs|Error = build_spectrogram_args(n_samples, fs)
         if(plan_ instanceof Error)
             return plan_ as Error
         plan = plan_
