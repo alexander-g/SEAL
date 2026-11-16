@@ -134,7 +134,7 @@ export class MainContent extends preact.Component<MainContentProps> {
                             items = {panels}
                             bottom_left_element = {
                                 <MSEED_AudioPlayback
-                                    $seismicsignal         = {this.$audiodata}
+                                    $audiodata         = {this.$audiodata}
                                     on_position_change = {this.on_audio_position_change}
                                 />
                             }
