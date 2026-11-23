@@ -19,6 +19,7 @@ import {
     trigger_file_download,
 } from './plot-export.ts'
 import { SignalPlotTimeIndicatorOverlay } from './mseed-heatmap-overlays.tsx'
+import { start_time_for_multiple_plots }  from './mseed-spectrogram.tsx'
 
 import type { Response }     from "../lib/station-xml.ts"
 import * as signalprocessing from "../lib/signal-processing.ts"
@@ -61,6 +62,9 @@ export class MSEED_SignalPlot extends preact.Component<{
 
     /** Current audio playback timestamp */
     $playback_time?: Readonly<Signal<Date|null>>;
+
+    /** Called when user sets a new start time in the settings */
+    on_new_start_time?: (t:Date) => void;
 }> {
     render(): JSX.Element {
         return <>
@@ -90,6 +94,24 @@ export class MSEED_SignalPlot extends preact.Component<{
         </ContainerWithOverlay>
         </>
     }
+
+    $has_multiple_plots: Readonly<Signal<boolean>> = signals.computed(() =>
+        this.props.$plot_data.value.length > 1
+    )
+
+    /** Parameters modified by the user. */
+    settings: MSEED_SignalPlotSettings = 
+        new MSEED_SignalPlotSettings(
+            /* $slice_length                 = */ this.props.$slice_length,
+            /* $show_common_y_domain_setting = */ this.$has_multiple_plots,
+            /*  $start_time                  = */ signals.computed(
+                () => start_time_for_multiple_plots(this.props.$plot_data.value)
+            ),
+            /* on_start_time = */ this.props.on_new_start_time,
+        )
+
+
+    
 
     /** List of individual plot data, sliced and bandpass filtered */
     $processed_plot_data: Readonly<Signal<(SignalPlotData|null)[]>> = signals.computed(() => {
@@ -280,17 +302,6 @@ export class MSEED_SignalPlot extends preact.Component<{
     })
 
 
-
-    $has_multiple_plots: Readonly<Signal<boolean>> = signals.computed(() =>
-        this.props.$plot_data.value.length > 1
-    )
-
-    /** Parameters modified by the user. */
-    settings: MSEED_SignalPlotSettings = 
-        new MSEED_SignalPlotSettings(
-            this.props.$slice_length,
-            this.$has_multiple_plots,
-        )
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted above
@@ -550,13 +561,24 @@ export class MSEED_SignalPlotSettings {
     /** Export the filtered signal instead of the original */
     $export_filtered = new Signal<boolean>(false)
 
+    /** Start time of the currently selected slice, 'multiple' if multiple slices
+     *  are selected and they have different start times, null if no slices. */
+    $start_time?: Readonly<Signal<Date|'multiple'|null>>
+
+    /** Callback, when user selects a new start time */
+    on_start_time?: (t:Date) => void
+    
     private $show_common_y_domain_setting?: Readonly<Signal<boolean>>
 
     constructor(
         $slice_length?: Signal<number>,
         $show_common_y_domain_setting?: Readonly<Signal<boolean>>,
+        $start_time?:   Readonly<Signal<Date|'multiple'|null>>,
+        on_start_time?: (t:Date) => void,
     ) {
         this.$slice_length = $slice_length ?? new Signal(300);
+        this.$start_time   = $start_time
+        this.on_start_time = on_start_time
         this.$show_common_y_domain_setting = $show_common_y_domain_setting
     }
 
@@ -585,6 +607,12 @@ export class MSEED_SignalPlotSettings {
                 label:    'Use common y domain',
                 $signal:  this.$use_common_y_domain,
                 $show_if: this.$show_common_y_domain_setting,
+            },
+            {
+                type:      'utc-time',
+                label:     'Start time',
+                $signal:   this.$start_time,
+                on_change: this.on_start_time
             },
             {
                 type:    'boolean',

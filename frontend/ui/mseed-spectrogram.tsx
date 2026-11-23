@@ -70,6 +70,9 @@ type MSEED_SpectrogramProps = {
 
     /** Current audio playback timestamp */
     $playback_time?: Readonly<Signal<Date|null>>;
+
+    /** Called when user sets a new start time in the settings */
+    on_new_start_time?: (t:Date) => void;
 }
 
 
@@ -102,6 +105,18 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         </>
     }
 
+    
+    /** Parameters modified by the user. */
+    settings: MSEED_SpectrogramHeatmapSettings = 
+        new MSEED_SpectrogramHeatmapSettings(
+            /* $slice_length = */ this.props.$slice_length, 
+            /* $start_time   = */ signals.computed( 
+                () => start_time_for_multiple_plots(this.props.$data.value) 
+            ),
+            /* on_start_time = */ this.props.on_new_start_time,
+        )
+    
+
     override componentDidMount(): void {
         const container: HTMLDivElement | null = this.plot_container_ref.current
         if(container != null) {
@@ -119,6 +134,8 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
 
     resize_observer: ResizeObserver | null = null
     $container_size: Signal<Size> = new Signal({ width: 0, height: 0 })
+
+    /** How many pixels the spectrogram should have */
     $target_size: Signal<Size | null> = new Signal(null)
 
     #on_container_resize = (entries: ResizeObserverEntry[]): void => {
@@ -165,10 +182,6 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
         if(next != this.$target_size.peek())
             this.$target_size.value = next
     }
-
-    /** Parameters modified by the user. */
-    settings: MSEED_SpectrogramHeatmapSettings = 
-        new MSEED_SpectrogramHeatmapSettings(this.props.$slice_length)
 
     on_new_settings = () => {
         // currently unused, settings changes are automatically adapted below
@@ -502,7 +515,30 @@ class MSEED_Spectrogram extends preact.Component<MSEED_SpectrogramProps> {
     $loading_or_updating: Readonly<Signal<boolean>> = signals.computed( () => {
         return this.props.$loading.value || this.$updating.value;
     } )
+
 }
+
+type HasStartTime = {
+    start_time: Date
+}
+
+/** The starttime value as shown in the settings, can be 'multiple'
+ *  if multiple slices dont have the same start */
+export 
+function start_time_for_multiple_plots(slices:HasStartTime[]): Date|'multiple'|null {
+    if(slices.length == 0)
+        return null
+    
+    const starttimes:number[] = slices.map(slice => slice.start_time.getTime())
+    const set_of_starttimes = new Set(starttimes)
+    if(set_of_starttimes.size == 1)
+        return new Date(starttimes[0]!)
+    //else different start times in the slices
+    return 'multiple'
+}
+
+
+
 
 
 type D3Input = {
@@ -588,14 +624,27 @@ export class MSEED_SpectrogramHeatmapSettings {
     /** Maximum frequency to show on the Y axis */
     $f_max = new Signal<number>(99999)
 
-    /** How much of the signal to show */
+    /** How much of the signal to show, in seconds */
     $slice_length: Signal<number>;
 
     /** Should the pixels be scaled from 0..1 ? */
     $scale_colors = new Signal<boolean>(false)
 
-    constructor($slice_length?:Signal<number>) {
-        this.$slice_length = $slice_length ?? new Signal(300);
+    /** Start time of the currently selected slice, 'multiple' if multiple slices
+     *  are selected and they have different start times, null if no slices. */
+    $start_time?: Readonly<Signal<Date|'multiple'|null>>
+
+    /** Callback, when user selects a new start time */
+    on_start_time?: (t:Date) => void
+
+    constructor(
+        $slice_length?: Signal<number>,
+        $start_time?:   Readonly<Signal<Date|'multiple'|null>>,
+        on_start_time?: (t:Date) => void,
+    ) {
+        this.$slice_length = $slice_length ?? new Signal(300)
+        this.$start_time   = $start_time
+        this.on_start_time = on_start_time
     }
 
     to_component_settings_entries(): SettingsEntry[] {
@@ -623,6 +672,12 @@ export class MSEED_SpectrogramHeatmapSettings {
                 label:   'Scale colors', 
                 $signal: this.$scale_colors
             },
+            {
+                type:      'utc-time',
+                label:     'Start time',
+                $signal:   this.$start_time,
+                on_change: this.on_start_time
+            }
         ]
     }
 }

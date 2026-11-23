@@ -39,8 +39,8 @@ import { range } from 'd3';
 
 
 // 5 minutes atm
-const HARDCODED_BIN_LENGTH_SECONDS:number = 60*5;
-// at least 30 seconds for an item atm
+export const HARDCODED_BIN_LENGTH_SECONDS:number = 60*5;
+// remaining signals shorter than 30 seconds are discarded atm
 const HARDCODED_MINIMUM_BIN_LENGTH_SECONDS:number = 30;
 
 const INFERENCE_EVENT_COLOR:RGB = { r: 248, g: 220, b: 70 }

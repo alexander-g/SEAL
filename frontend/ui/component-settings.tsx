@@ -1,4 +1,5 @@
 import { preact, Signal, JSX } from '../dep.ts'
+import { strftime_ISO8601_datetime } from '../lib/util.ts'
 import { HoverActionContainer } from "./hover-action-container.tsx"
 
 
@@ -163,6 +164,14 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
                         {...entry}
                     />
                 )
+            else if(entry.type == 'utc-time')
+                entry_components.push(
+                    <UtcTimeSettingsEntryComponent
+                        key       = {entry_index}
+                        ref       = {this.entries_refs[entry_index]}
+                        {...entry}
+                    />
+                )
         }
 
         const extra_action_buttons: JSX.Element[] = []
@@ -228,10 +237,39 @@ export class SettingsOverlay extends preact.Component<SettingsOverlayProps> {
         for(const [entry_index, entry] of this.props.settings_entries.entries()) {
             const next_value: SettingsValue|undefined = 
                 this.entries_refs[entry_index]?.current?.draft_value
-            entry.$signal.value = next_value as never;
+            if(next_value == undefined || entry.$signal == undefined)
+                continue
+
+            try {
+                ;(entry.$signal as Signal<unknown>).value = next_value
+            } catch {
+                // ignore readonly signals
+            }
+
+            if('on_change' in entry 
+            && entry.on_change 
+            && next_value instanceof Date)
+                entry.on_change(next_value)
+            
         }
         this.props.on_close(true)
     }
+}
+
+
+
+/** Parse a UTC timestamp formatted as 'YYYY-MM-DDTHH:MM:SS' */
+export function parse_utc_datetime_string(input: string): Date | Error {
+    const match: RegExpMatchArray | null =
+        /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(input)
+    if(match == null)
+        return new Error('Invalid UTC time format, expected YYYY-MM-DDTHH:MM:SS')
+
+    const parsed: Date = new Date(`${input}Z`)
+    if(Number.isNaN(parsed.getTime()) || strftime_ISO8601_datetime(parsed) != input)
+        return new Error('Invalid UTC date/time value')
+
+    return parsed
 }
 
 
@@ -243,6 +281,8 @@ export class SignalWithDraftValue<T> extends Signal<T> {
 }
 
 type SignalMaybeWithDraftValue<T> = Signal<T> | SignalWithDraftValue<T>
+
+type UtcTimeValue = Date | 'multiple' | null
 
 
 
@@ -275,6 +315,14 @@ type EnumSettingsEntry = {
     $show_if?: Readonly<Signal<boolean>>
 }
 
+type UtcTimeSettingsEntry = {
+    type:       'utc-time';
+    label:      string;
+    $signal?:   Readonly<SignalMaybeWithDraftValue<UtcTimeValue>>;
+    $show_if?:  Readonly<Signal<boolean>>;
+    on_change?: (x:Date) => void;
+}
+
 export type SettingsAction = {
     label:    string;
     on_click: () => void;
@@ -283,9 +331,10 @@ export type SettingsAction = {
 export type SettingsEntry =
     BooleanSettingsEntry
     | NumberSettingsEntry
-    | EnumSettingsEntry;
+    | EnumSettingsEntry
+    | UtcTimeSettingsEntry;
 
-type SettingsValue = SettingsEntry['$signal']['value']
+type SettingsValue = NonNullable<SettingsEntry['$signal']>['value']
 
 
 
@@ -294,6 +343,7 @@ type SettingsEntryComponent =
     NumberSettingsEntryComponent
     | BooleanSettingsEntryComponent
     | EnumSettingsEntryComponent
+    | UtcTimeSettingsEntryComponent
 
 
 
@@ -403,6 +453,71 @@ class EnumSettingsEntryComponent extends preact.Component<EnumSettingsEntry> {
 
         if('$draft' in this.props.$signal)
             this.props.$signal.$draft.value = value
+    }
+}
+
+export class UtcTimeSettingsEntryComponent
+    extends preact.Component<UtcTimeSettingsEntry> {
+    public draft_value: UtcTimeValue | undefined = this.props.$signal?.value;
+
+    $input_text: Signal<string> = new Signal(
+        this.props.$signal?.value instanceof Date
+        ?   strftime_ISO8601_datetime(this.props.$signal.value)
+        :   ''
+    )
+
+    $is_valid: Signal<boolean> = new Signal(true)
+
+    render(): JSX.Element {
+        const current_value: UtcTimeValue = this.props.$signal?.value ?? null
+        const is_valid: boolean = this.$is_valid.value
+        const placeholder: string =
+            current_value == 'multiple' ? 'multiple' : 'YYYY-MM-DDTHH:MM:SS'
+
+        const input_css: preact.CSSProperties = {
+            width:        '150px',
+            border:       is_valid ? '1px solid #b9c5cf' : '1px solid #d32f2f',
+            borderRadius: '4px',
+            padding:      '2px 6px',
+            fontSize:     '12px',
+            background:   is_valid ? '#ffffff' : '#ffebee',
+        }
+
+        return <label style={settings_row_css}>
+            <span>{this.props.label}</span>
+            <input
+                type        = 'text'
+                value       = {this.$input_text.value}
+                placeholder = {placeholder}
+                style       = {input_css}
+                onInput     = {
+                    (event: preact.TargetedEvent<HTMLInputElement>) =>
+                        this.update_draft_value(
+                            (event.target as HTMLInputElement).value
+                        )
+                }
+            />
+        </label>
+    }
+
+    update_draft_value = (text: string): void => {
+        this.$input_text.value = text
+
+        const parsed: Date | Error = parse_utc_datetime_string(text)
+        if(parsed instanceof Error) {
+            this.$is_valid.value = (
+                text == '' && this.props.$signal?.value == 'multiple'
+            )
+            this.draft_value = undefined
+            return
+        }
+
+        this.$is_valid.value = true
+        this.draft_value     = parsed
+
+        if(this.props.$signal != undefined && '$draft' in this.props.$signal)
+            this.props.$signal.$draft.value = parsed
+
     }
 }
 

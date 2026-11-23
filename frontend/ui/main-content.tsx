@@ -13,6 +13,7 @@ import {
 
 import { 
     MSEED_Heatmap,
+    HARDCODED_BIN_LENGTH_SECONDS,
     type InferenceEvent,
     type OnClickItem,
     type DataSignalSlice as SignalSliceForHeatmap,
@@ -66,12 +67,13 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Signal',
                 element: 
                     <MSEED_SignalPlot
-                        $plot_data     = {this.$signal_plot_data}
-                        $loading       = {this.$plots_loading}
-                        $slice_length  = {this.$signal_slice_length}
-                        $hover_time    = {this.$hover_time}
-                        $playback_time = {this.$playback_time}
-                        on_remove      = {this.on_signal_remove}
+                        $plot_data        = {this.$signal_plot_data}
+                        $loading          = {this.$plots_loading}
+                        $slice_length     = {this.$signal_slice_length}
+                        $hover_time       = {this.$hover_time}
+                        $playback_time    = {this.$playback_time}
+                        on_remove         = {this.on_signal_remove}
+                        on_new_start_time = {this.on_new_start_time}
                     />
             },
             {
@@ -79,11 +81,12 @@ export class MainContent extends preact.Component<MainContentProps> {
                 label: 'Spectrogram',
                 element:
                 <MSEED_Spectrogram
-                    $data          = {this.$spectrogram_plot_data}
-                    $loading       = {this.$plots_loading}
-                    $slice_length  = {this.$signal_slice_length}
-                    $hover_time    = {this.$hover_time}
-                    $playback_time = {this.$playback_time}
+                    $data             = {this.$spectrogram_plot_data}
+                    $loading          = {this.$plots_loading}
+                    $slice_length     = {this.$signal_slice_length}
+                    $hover_time       = {this.$hover_time}
+                    $playback_time    = {this.$playback_time}
+                    on_new_start_time = {this.on_new_start_time}
                 />
             },
             // {
@@ -471,17 +474,23 @@ export class MainContent extends preact.Component<MainContentProps> {
         if(this.$plots_loading.value)
             return
 
-        const new_slice:SelectedSignalSlice = {
-            file_index:  selected.mseed_index, 
+        const new_slice: SelectedSignalSlice = {
+            file_index: selected.mseed_index, 
             start_time: selected.start_time,
         }
-        if(selected.shiftkey)
-            this.$selected_slices.value = [
-                ...this.$selected_slices.value,
-                new_slice
-            ]
-        else
-            this.$selected_slices.value = [new_slice]
+        const new_selected_slices: SelectedSignalSlice[] = [
+            ...(selected.shiftkey ? this.$selected_slices.value : []),
+            new_slice
+        ]
+
+        // set slice length to at least 300s (atm) to cover the whole item/bin
+        const new_length:number = 
+            Math.max(this.$signal_slice_length.value, HARDCODED_BIN_LENGTH_SECONDS)
+        
+        signals.batch(() => {
+            this.$selected_slices.value = new_selected_slices
+            this.$signal_slice_length.value = new_length
+        })
     }
 
     /** Called when user wants to remove a displayed signal slice. */
@@ -494,6 +503,18 @@ export class MainContent extends preact.Component<MainContentProps> {
 
         this.$selected_slices.value = 
             [...current_slices.slice(0, index), ...current_slices.slice(index+1)]
+    }
+
+    /** Called when user sets a new start time in in the spectrogram or signal plot */
+    on_new_start_time = (t:Date) => {
+        if(this.$plots_loading.value)
+            return
+
+        const new_slices: SelectedSignalSlice[] = []
+        for(const slice of this.$selected_slices.value)
+            new_slices.push({ ...slice, start_time:t })
+        
+        this.$selected_slices.value = new_slices    
     }
 
     $selected_slices_for_heatmap: Readonly<Signal<SignalSliceForHeatmap[]>> = 
