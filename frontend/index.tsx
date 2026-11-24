@@ -9,7 +9,12 @@ import {
     type ProcessedFiles,
     type MSEED_FileAndMeta,
 }                       from "./lib/file-input.ts"
-import type { Station } from "./lib/station-xml.ts"
+import {
+    load_stations_from_storage,
+    merge_stations,
+    save_stations_to_storage,
+    type Station,
+} from "./lib/station-xml.ts"
 import type { QuakeEvent } from "./lib/quakeml.ts"
 
 
@@ -114,11 +119,26 @@ class App extends preact.Component {
             this.app_state.$mseeds.value = processed.mseeds;
         if(processed.events.length > 0)
             this.app_state.$events.value = processed.events;
-        if(processed.stations.length > 0)
-            this.app_state.$stations.value = processed.stations
+        if(processed.stations.length > 0) {
+            const merged: Station[] = merge_stations(
+                this.app_state.$stations.value,
+                processed.stations,
+            )
+            this.app_state.$stations.value = merged
+            save_stations_to_storage(merged)
+        }
     }
 
     override componentDidMount(): void {
+        const stored_stations: Station[] = load_stations_from_storage()
+        if(stored_stations.length > 0) {
+            this.app_state.$stations.value = merge_stations(
+                stored_stations,
+                this.app_state.$stations.value,
+            )
+        }
+
+
         // for debugging
         self.app_state = this.app_state
     }
