@@ -13,7 +13,62 @@ export type Station = {
     latitude:  number,
     longitude: number,
 
-    channels?: Channel[],
+    channels?:     Channel[],
+    from_storage?: boolean,
+}
+
+
+const STATIONS_STORAGE_KEY: string = 'stations'
+
+
+/** Merge incoming stations into existing ones, replacing stations with the same code. */
+export function merge_stations(
+    existing: Station[],
+    incoming: Station[],
+): Station[] {
+    const by_code: Map<string, Station> = new Map()
+    for(const station of existing)
+        by_code.set(station.code, station)
+    for(const station of incoming)
+        by_code.set(station.code, station)
+    return Array.from(by_code.values())
+}
+
+
+/** Save stations to browser localStorage. */
+export function save_stations_to_storage(stations: Station[]): null | Error {
+    try {
+        const stripped: Station[] = stations.map(
+            ({ from_storage: _, ...rest }: Station) => rest
+        )
+        globalThis.localStorage?.setItem(
+            STATIONS_STORAGE_KEY,
+            JSON.stringify(stripped),
+        )
+        return null
+    } catch (e) {
+        return e instanceof Error ? e : new Error(String(e))
+    }
+}
+
+
+/** Load stations from browser localStorage, marking them with `from_storage: true`. */
+export function load_stations_from_storage(): Station[] {
+    try {
+        const raw: string | null | undefined =
+            globalThis.localStorage?.getItem(STATIONS_STORAGE_KEY)
+        if(!raw)
+            return []
+        const parsed: unknown = JSON.parse(raw)
+        if(!Array.isArray(parsed))
+            return []
+        return parsed.map((station: Station) => ({
+            ...station,
+            from_storage: true,
+        }))
+    } catch {
+        return []
+    }
 }
 
 

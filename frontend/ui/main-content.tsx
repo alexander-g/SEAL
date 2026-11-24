@@ -176,7 +176,8 @@ export class MainContent extends preact.Component<MainContentProps> {
         }
     )
 
-    /** Stations in the order as fed into the map, those without metadata first */
+    /** Stations in the order as fed into the map, those without metadata first
+     *  to make sure loaded ones are displayed above them */
     $reordered_stations: Readonly<Signal<Station[]>> = signals.computed(
         () => [
             // same order as fed into map
@@ -191,7 +192,7 @@ export class MainContent extends preact.Component<MainContentProps> {
         
         // first markers without mseeds, because of z-ordering
         const station_markers: Marker[] = stations.without_meta.map(
-            (station: Station) => {
+            (station: Station): Marker => {
                 const visual:MarkerVisual = {
                     // station without mseed data (gray)
                     shape:           'circle',
@@ -201,14 +202,15 @@ export class MainContent extends preact.Component<MainContentProps> {
                     size:            5
                 }
                 return {
-                    latitude:  station.latitude,
-                    longitude: station.longitude,
-                    label:     station.code,
+                    latitude:             station.latitude,
+                    longitude:            station.longitude,
+                    label:                station.code,
                     visual,
+                    ignore_for_centering: station.from_storage == true,
                 }
             }
         ).concat( stations.with_meta.map(
-            (station: Station) => {
+            (station: Station): Marker => {
                 const visual:MarkerVisual = {
                     // station with associated mseed data (red)
                     shape:           'circle',
